@@ -31,7 +31,8 @@ async function selectTheme(id: string): Promise<void> {
   applyTheme(id);
   closeOverlay();
   try {
-    await SaveSettings({ theme: id });
+    const current = await GetSettings();
+    await SaveSettings({ ...current, theme: id });
   } catch (err) {
     console.error(err);
   }
@@ -44,7 +45,7 @@ export function openThemePicker(): void {
   closeBtn.type = "button";
   closeBtn.className = "overlay-close";
   closeBtn.setAttribute("aria-label", "Close");
-  closeBtn.textContent = "✕";
+  closeBtn.textContent = "\uf00d";
   closeBtn.addEventListener("click", () => closeOverlay());
   content.appendChild(closeBtn);
 

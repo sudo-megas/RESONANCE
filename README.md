@@ -4,7 +4,7 @@
 
 ---
 
-This is an early scaffold (v0.1.0) — the window, the mirror layout, and the theme system exist, but backup and restore themselves don't yet. Full usage documentation arrives once the vault functionality ships with v1.0.0.
+This is an early scaffold (v0.2.0) — the window, the mirror layout, the theme system, and backup now work: choose a vault, add an app's files, and RESONANCE copies them in byte-identical. Restore doesn't exist yet. Full usage documentation arrives once the vault functionality ships with v1.0.0.
 
 ## Licence
 

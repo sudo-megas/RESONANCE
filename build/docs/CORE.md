@@ -2,7 +2,7 @@
 
 **The project constitution. Everything in this document is ratified by the maker. Nothing here may be changed, reinterpreted, or "improved" without his explicit permission.**
 
-Document version 1.0 — 2026-08-11
+Document version 1.1 — 2026-08-11 (amended by STEP2, 2026-08-11)
 Location: `/home/megas/RESONANCE/build/docs/CORE.md`
 
 ---
@@ -36,6 +36,10 @@ Location: `/home/megas/RESONANCE/build/docs/CORE.md`
 | Frontend | HTML / CSS / TypeScript | Vanilla-TS Wails template — no frontend framework. |
 | Storage | **JSON** | Manifest and settings. No database, ever. "New language, new environment." |
 | Licence | **GPL-3.0-or-later** | Deliberate: the first family app not on GPL-3.0-only. |
+| Typography | **CaskaydiaCove Nerd Font** (chrome/labels/headings) + **CaskaydiaMono Nerd Font** (paths, technical strings) | Self-hosted `.ttf`, `frontend/src/assets/fonts/`, `@font-face` in `theme.css`. Zero network — see §5. Added STEP2. |
+| Iconography | **Nerd Font glyphs** (Font Awesome patch set, Private-Use-Area codepoints) from the same bundled fonts | No second icon asset. Exact glyph codepoints confirmed at implementation time. Added STEP2. |
+
+*Amendment deployed by megas, 2026-08-11.*
 
 Considered and dropped: C#/Avalonia (dropped by the maker), Tauri (runner-up), Qt/QML, egui, C, Ruby, Lua.
 
@@ -51,7 +55,8 @@ No sidebar. JADEITE and INDIUM share ~80% of a layout; RESONANCE deliberately do
 - **Drift badges** glow on any row where the two sides no longer match (checksum-based).
 - **Single window.** All secondary views are overlays that dim the mirror and expand from the center outward — like a wave. One overlay grammar serves: diff view, restore preview, machine-info card, add-app flow, theme picker, About.
 - **Top bar:** app logo left (family convention), vault path selector, theme button, About button.
-- **Empty state:** centered logo + "＋ Add your first app". No dead chrome.
+- **No empty state, ever.** The mirror's chrome — top bar, SYSTEM/spine/VAULT panes — looks and behaves identically whether 0 or 500 apps exist. No centered logo, no "add your first app" call-to-action, anywhere. *(Amends the original "Empty state" line — STEP2, 2026-08-11. Amendment deployed by megas, 2026-08-11.)*
+- **The spine carries a persistent "＋".** Pinned near the top, visible from first launch onward, opens the add-app overlay. This is the one confirmed exception to this section's "decided, not open" header — offered a footer-row and a topbar-icon alternative, the maker chose the spine. *(Added STEP2, 2026-08-11. Amendment deployed by megas, 2026-08-11.)*
 
 ---
 
@@ -99,7 +104,8 @@ No sidebar. JADEITE and INDIUM share ~80% of a layout; RESONANCE deliberately do
 
 - One STEP document = one minor version: STEP1 → **v0.1.0**, STEP2 → **v0.2.0**, and so on.
 - Unexpected fix releases patch the third digit: vX.X.1, vX.X.2, ...
-- **Every v0.X.X release is a GitHub pre-release (beta).** The pre-release flag drops only at v1.0.0.
+- **Local until v1.0.0.** STEP1/v0.1.0 was pushed and manually published as a GitHub pre-release before this rule was set. From STEP2 onward, every STEP is committed locally only — no push, no tag, no GitHub release — all the way through v0.9.x. *(Amendment deployed by megas, 2026-08-11.)*
+- **At v1.0.0, release moves to CI.** A GitHub Actions pipeline handles build + release at that point, replacing the manual `gh release create` process used for v0.1.0. *(Amendment deployed by megas, 2026-08-11.)*
 
 ## 9. THE STEP LADDER (approved 2026-08-11)
 

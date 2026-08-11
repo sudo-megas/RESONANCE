@@ -6,12 +6,17 @@
 interface ActiveOverlay {
   scrim: HTMLDivElement;
   onClose?: () => void;
+  dismissable: boolean;
 }
 
 let active: ActiveOverlay | null = null;
 
 export interface OverlayOptions {
   onClose?: () => void;
+  /** Default true. Set false to disable Escape and backdrop-click — the
+   * overlay can then only be closed by calling closeOverlay() explicitly
+   * from within its own content (e.g. once a required choice is made). */
+  dismissable?: boolean;
 }
 
 export interface OverlayHandle {
@@ -19,7 +24,7 @@ export interface OverlayHandle {
 }
 
 function handleKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") closeOverlay();
+  if (e.key === "Escape" && active?.dismissable) closeOverlay();
 }
 
 export function openOverlay(content: HTMLElement, opts?: OverlayOptions): OverlayHandle {
@@ -37,7 +42,7 @@ export function openOverlay(content: HTMLElement, opts?: OverlayOptions): Overla
 
   scrim.appendChild(panel);
   scrim.addEventListener("click", (e) => {
-    if (e.target === scrim) closeOverlay();
+    if (e.target === scrim && active?.dismissable) closeOverlay();
   });
   root.appendChild(scrim);
   document.addEventListener("keydown", handleKeydown);
@@ -45,7 +50,7 @@ export function openOverlay(content: HTMLElement, opts?: OverlayOptions): Overla
   // Force a reflow so the transition actually animates from the initial state.
   requestAnimationFrame(() => scrim.classList.add("overlay-open"));
 
-  active = { scrim, onClose: opts?.onClose };
+  active = { scrim, onClose: opts?.onClose, dismissable: opts?.dismissable ?? true };
 
   return { close: closeOverlay };
 }

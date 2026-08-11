@@ -178,3 +178,178 @@
   color: var(--text-dim);
   font-style: italic;
 }
+
+/* Vault prompt — first-launch (non-dismissable) and Change Path (dismissable) */
+.vault-prompt-explain {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.vault-prompt-status {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--badge-drift);
+  min-height: 1em;
+}
+.vault-prompt-choose-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.vault-prompt-choose-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+.vault-prompt-choose-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.vault-decision {
+  margin: 4px 0 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vault-decision:empty {
+  display: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.vault-decision p {
+  margin: 0;
+  font-size: 13px;
+}
+.vault-decision button {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+.vault-decision button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.vault-decision button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Add-app form */
+.addapp-label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.addapp-input {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.addapp-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.addapp-choose-files-btn {
+  padding: 8px 14px;
+  margin: 0 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.addapp-choose-files-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.addapp-filelist {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.addapp-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.addapp-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.addapp-file-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.addapp-file-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.addapp-error {
+  margin: 0 0 12px;
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--danger);
+}
+.addapp-submit {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.addapp-submit:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+.addapp-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

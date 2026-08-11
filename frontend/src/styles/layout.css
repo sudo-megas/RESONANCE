@@ -17,16 +17,6 @@
   border: 2px solid var(--accent-2);
   border-radius: 50%;
 }
-.logo-mark--large {
-  width: 56px;
-  height: 56px;
-  border-width: 3px;
-}
-.logo-mark--large::after {
-  inset: 15px;
-  border-width: 3px;
-}
-
 /* Top bar */
 .topbar {
   display: flex;
@@ -53,10 +43,38 @@
   align-items: center;
   gap: 12px;
 }
-.vault-path {
+.vault-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+}
+.vault-path-display {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-dim);
-  cursor: default;
+}
+.text-btn {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+.text-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--spine);
+}
+.text-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 .icon-btn {
   display: flex;
@@ -108,43 +126,64 @@
   color: var(--text-dim);
 }
 .spine {
+  position: relative;
   width: 96px;
   background: var(--spine);
   border-left: 1px solid var(--border-strong);
   border-right: 1px solid var(--border-strong);
 }
 
-/* Empty state — centered over the whole mirror, STEP1 always shows this
-   since no app data exists yet */
-.empty-state {
+/* Spine add button — the one confirmed exception to the spine's reserved
+   "decided, not open" territory; see CORE.md §3's amendment note. */
+.spine-add-btn {
   position: absolute;
-  inset: 0;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 32px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  pointer-events: none;
-}
-.empty-state > * {
-  pointer-events: auto;
-}
-.add-app-btn {
-  padding: 10px 18px;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
   background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
+  color: var(--accent);
+  font-size: 16px;
   cursor: pointer;
 }
-.add-app-btn:hover {
+.spine-add-btn:hover {
   border-color: var(--accent);
-  color: var(--accent);
 }
-.add-app-btn:focus-visible {
+.spine-add-btn:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* App rows — persistent chrome inside each pane body, not overlay content.
+   STEP2 keeps them simple: name + file count, no accordion. */
+.app-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.app-row-name {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+.app-row-count {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.pane-hint {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
 }
 
 /* Toast */

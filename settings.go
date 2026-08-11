@@ -11,7 +11,8 @@ const defaultTheme = "default-dark"
 // Settings is the persisted user configuration, stored at
 // $XDG_CONFIG_HOME/resonance/settings.json (~/.config/resonance/settings.json).
 type Settings struct {
-	Theme string `json:"theme"`
+	Theme     string `json:"theme"`
+	VaultPath string `json:"vaultPath"`
 }
 
 func settingsPath() (string, error) {

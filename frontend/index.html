@@ -13,9 +13,12 @@
             <span class="app-name">RESONANCE</span>
         </div>
         <div class="topbar-actions">
-            <span class="vault-path" id="vault-path" title="Not set yet — arrives in v0.2.0">Vault: not set</span>
-            <button class="icon-btn" id="theme-btn" type="button" aria-label="Change theme">◐</button>
-            <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE">?</button>
+            <div class="vault-control">
+                <span class="vault-path-display" id="vault-path-display" title=""></span>
+                <button class="text-btn" id="vault-path-btn" type="button">Change Path</button>
+            </div>
+            <button class="icon-btn" id="theme-btn" type="button" aria-label="Change theme">&#xf042;</button>
+            <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE">&#xf059;</button>
         </div>
     </header>
     <main class="mirror">
@@ -23,15 +26,13 @@
             <h2 class="pane-label">SYSTEM</h2>
             <div class="pane-body" id="system-body"></div>
         </section>
-        <div class="spine" id="spine" aria-hidden="true"></div>
+        <div class="spine" id="spine">
+            <button class="spine-add-btn" id="add-app-btn" type="button" aria-label="Add app">&#xf067;</button>
+        </div>
         <section class="pane pane-vault" id="pane-vault" aria-label="Vault">
             <h2 class="pane-label">VAULT</h2>
             <div class="pane-body" id="vault-body"></div>
         </section>
-        <div class="empty-state" id="empty-state">
-            <span class="logo-mark logo-mark--large" aria-hidden="true"></span>
-            <button class="add-app-btn" id="add-app-btn" type="button">＋ Add your first app</button>
-        </div>
     </main>
     <div id="overlay-root"></div>
     <div id="toast-root"></div>

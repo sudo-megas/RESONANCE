@@ -4,7 +4,39 @@
  * adding a palette in a later STEP must never require touching any other CSS file.
  */
 
+/* Bundled, self-hosted — zero network requests, per CORE.md §5. */
+@font-face {
+  font-family: "CaskaydiaCove Nerd Font";
+  src: url("../assets/fonts/CaskaydiaCoveNerdFont-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CaskaydiaCove Nerd Font";
+  src: url("../assets/fonts/CaskaydiaCoveNerdFont-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CaskaydiaCove Nerd Font Mono";
+  src: url("../assets/fonts/CaskaydiaCoveNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CaskaydiaCove Nerd Font Mono";
+  src: url("../assets/fonts/CaskaydiaCoveNerdFontMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
+  /* Typography: CaskaydiaCove for chrome/labels/headings, the strict-width
+     Mono variant for raw technical strings (vault path, file paths) where
+     ligature substitution on a literal filesystem path would mislead. */
+  --font-ui: "CaskaydiaCove Nerd Font", monospace;
+  --font-mono: "CaskaydiaCove Nerd Font Mono", monospace;
+
   /* Default Dark values, duplicated below in [data-theme="default-dark"].
      Kept here too so the very first paint (before main.ts resolves the
      persisted theme) already matches main.go's BackgroundColour. */
@@ -62,13 +94,20 @@
   box-sizing: border-box;
 }
 
+/* Form controls don't inherit font-family from the page by default in
+   browser UA stylesheets — without this, every button/input in the app
+   silently renders in the OS default font instead of --font-ui/--font-mono. */
+button, input, textarea, select {
+  font-family: inherit;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 
