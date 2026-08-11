@@ -1,6 +1,6 @@
 # RESONANCE
 
-**A tiny, fully local dotfiles backup & restore tool.**
+**Dotfile syncing that is for "users" not developers.**
 
 ---
 
