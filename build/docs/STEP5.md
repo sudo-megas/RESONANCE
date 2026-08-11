@@ -330,6 +330,48 @@ are wired into both packages' `hicolor` icon theme install; 1024–4096
 stay staged but unconsumed, not an error, just unneeded by standard
 Linux icon-theme installs.
 
+A real gap surfaced later, caught only by actually asking "is the icon
+showing up" and auditing every surface it should appear on: the packaged
+`hicolor` install above was correct, but the icon had never been wired
+into the *app itself*. `build/appicon.png` was still Wails' stock "W"
+placeholder — never swapped for the real logo despite `build/icons/`
+landing — and `main.go` never set `options.App.Linux.Icon` at all, so
+the running window had no icon (titlebar/taskbar showed nothing custom,
+even on a packaged install run outside its window-manager's desktop-file
+resolution). The in-app "about" mark and topbar mark were the CSS-drawn
+placeholder rings `layout.css` had shipped since STEP1, whose own comment
+said they were standing in "until [the PNG] lands at build/icons/" — it
+landed, but nobody came back to do the swap. Fixed: `build/appicon.png`
+replaced with the real 1024px logo (Wails' own convention slot);
+`main.go` now embeds `build/icons/128.png` and sets
+`Linux: &linux.Options{Icon: icon, ProgramName: "resonance"}`; both
+`.logo-mark` (topbar) and `.logo-mark--about` now render the same real
+128px PNG via `background: url(...) center/contain`, replacing the ring
+placeholder entirely.
+
+One non-obvious sizing bug found while fixing this, worth recording so
+it isn't rediscovered the hard way: feeding `Linux.Icon` the full 1024px
+master (matching the Mac convention, by direct analogy) *silently*
+produces a window with no `_NET_WM_ICON` at all — confirmed via `xprop`,
+comparing the 1024px and 128px builds side by side. GTK still emits a
+legacy `WM_HINTS` icon pixmap either way, so the failure isn't visible
+without checking the modern property directly; a window manager reading
+only `_NET_WM_ICON` (as most do today) would show no icon and nothing
+in the build would say so. 128px, matching the size already used for the
+in-app mark, works correctly and is what's shipped.
+
+Also recorded plainly rather than glossed over: `Linux.Icon` only
+reaches windows running under X11 or XWayland — confirmed by testing
+under `GDK_BACKEND=x11`, the only way to make this webkit2gtk app
+visible to X11 tooling at all on this machine's native-Wayland KDE
+Plasma session. Native Wayland has no per-window icon protocol; a
+compositor resolves an app's icon from its `app_id` through the
+installed `.desktop` file to the `hicolor` theme, which is exactly the
+install path already verified above. So the packaged, installed app was
+already getting a correct icon on Wayland before this fix — this fix's
+real effect is the *unpackaged* app (dev runs, a bare extracted binary)
+and any X11/XWayland session, which previously had no icon at all.
+
 **Maintainer identity**, corrected during implementation: the plan
 assumed the session's own account email; the project's real git identity
 (every prior commit, `git config user.email`) is
@@ -385,6 +427,14 @@ maker-initiated actions using the pipeline this STEP built.
       correct (Maintainer field filled, description present)
 - [x] `build/icons/`'s 32–512px sizes wired into both packages;
       1024–4096 intentionally left unconsumed
+- [x] The real logo is wired into the app itself, not just the packages:
+      `build/appicon.png` replaced (was Wails' stock placeholder),
+      `main.go` sets `Linux.Icon`/`ProgramName`, topbar/about marks
+      render the real PNG in place of the STEP1 CSS-ring placeholder —
+      confirmed via `xprop`'s `_NET_WM_ICON` and a window screenshot
+      under `GDK_BACKEND=x11`; the about-panel's click-through visual
+      still needs the maker's own eyes (no working input-synthesis path
+      this session — see the theme-picker caveat above)
 - [x] Local `makepkg` build succeeds; the resulting package's binary
       installs (extracted) and **launches for real**, not just passes
       structural checks — `.deb` build itself deliberately deferred to

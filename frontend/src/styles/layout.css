@@ -1,21 +1,11 @@
-/* Logo mark — a simple pair of mirrored rings, standing in for the maker's
-   PNG until it lands at build/icons/. Pure CSS so no placeholder image asset
-   is shipped that would need to be remembered and swapped out later. */
+/* Logo mark — the maker's actual globe mark (build/icons/128.png, the
+   wordmark-free crop), not a drawn stand-in. */
 .logo-mark {
-  position: relative;
   display: inline-block;
   width: 18px;
   height: 18px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
   flex-shrink: 0;
-}
-.logo-mark::after {
-  content: "";
-  position: absolute;
-  inset: 5px;
-  border: 2px solid var(--accent-2);
-  border-radius: 50%;
+  background: url("../assets/logo.png") center / contain no-repeat;
 }
 /* Top bar */
 .topbar {
