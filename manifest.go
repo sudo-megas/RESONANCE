@@ -17,6 +17,13 @@ const manifestVersion = 1
 type Manifest struct {
 	Version int           `json:"version"`
 	Apps    []ManifestApp `json:"apps"`
+
+	// MachineInfo describes whichever machine most recently wrote into this
+	// vault (AddApp or UpdateFromSource). Additive — absent (zero-valued) on
+	// any manifest.json written before STEP4, and unlike checksums this
+	// can't be backfilled: it's a fact about a past event, not a property of
+	// bytes the vault still has.
+	MachineInfo MachineInfo `json:"machineInfo,omitempty"`
 }
 
 type ManifestApp struct {

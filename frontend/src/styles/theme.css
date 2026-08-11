@@ -54,6 +54,14 @@
   --focus-ring: #5cb3a3;
   --overlay-scrim: rgba(12, 14, 17, 0.72);
   --overlay-panel: #1e222a;
+
+  /* Diff view — this STEP's only genuinely new visual language; nothing
+     earlier needed an "added"/"removed" distinction. --diff-remove reuses
+     --danger (a removed line is a change, same semantic weight this app
+     already gives "danger" elsewhere) rather than inventing a second red. */
+  --diff-add: #6fbf8f;
+  --diff-add-bg: rgba(111, 191, 143, 0.14);
+  --diff-remove-bg: rgba(201, 106, 95, 0.14);
 }
 
 [data-theme="default-dark"] {
@@ -71,6 +79,9 @@
   --focus-ring: #5cb3a3;
   --overlay-scrim: rgba(12, 14, 17, 0.72);
   --overlay-panel: #1e222a;
+  --diff-add: #6fbf8f;
+  --diff-add-bg: rgba(111, 191, 143, 0.14);
+  --diff-remove-bg: rgba(201, 106, 95, 0.14);
 }
 
 [data-theme="ubuntu-aubergine"] {
@@ -88,6 +99,9 @@
   --focus-ring: #F08C4F;
   --overlay-scrim: rgba(44, 0, 30, 0.72);
   --overlay-panel: #772953;
+  --diff-add: #6fbf8f;
+  --diff-add-bg: rgba(111, 191, 143, 0.14);
+  --diff-remove-bg: rgba(201, 106, 95, 0.14);
 }
 
 * {

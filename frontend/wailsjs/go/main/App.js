@@ -18,8 +18,16 @@ export function CopyVaultTo(arg1) {
   return window['go']['main']['App']['CopyVaultTo'](arg1);
 }
 
+export function GetDiffPair(arg1, arg2) {
+  return window['go']['main']['App']['GetDiffPair'](arg1, arg2);
+}
+
 export function GetLicenseText() {
   return window['go']['main']['App']['GetLicenseText']();
+}
+
+export function GetMachineInfo() {
+  return window['go']['main']['App']['GetMachineInfo']();
 }
 
 export function GetMirrorRows() {
@@ -40,6 +48,10 @@ export function PickFiles() {
 
 export function ProbeVaultPath(arg1) {
   return window['go']['main']['App']['ProbeVaultPath'](arg1);
+}
+
+export function RestoreApp(arg1) {
+  return window['go']['main']['App']['RestoreApp'](arg1);
 }
 
 export function SaveSettings(arg1) {

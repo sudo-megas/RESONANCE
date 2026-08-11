@@ -201,6 +201,7 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 		result.Updated = append(result.Updated, f.Path)
 	}
 
+	stampMachineInfo(&m)
 	if err := saveManifest(settings.VaultPath, m); err != nil {
 		return result, err
 	}

@@ -128,5 +128,6 @@ func (a *App) AddApp(name string, absPaths []string) error {
 	}
 
 	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: files})
+	stampMachineInfo(&m)
 	return saveManifest(settings.VaultPath, m)
 }

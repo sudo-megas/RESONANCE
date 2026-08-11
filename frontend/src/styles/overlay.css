@@ -426,3 +426,208 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* Restore preview — the first overlay that writes onto the live system.
+   Machine-info card, summary, itemized New/Overwrite list (Overwrite rows
+   expandable to a lazily-fetched diff), and an unconditional checkbox gate
+   before Restore is enabled at all. */
+.machine-info-card,
+.machine-info-card-slot {
+  margin: 0 0 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.machine-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.machine-info-label {
+  color: var(--text-dim);
+}
+.machine-info-value {
+  color: var(--text);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.machine-info-unknown {
+  margin: 0;
+  font-style: italic;
+}
+
+.restore-preview-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.restore-preview-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.restore-preview-row {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.restore-preview-row-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.restore-preview-row-toggle {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.restore-preview-row-toggle::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform 150ms ease;
+  display: block;
+}
+.restore-preview-row-toggle--expanded::before {
+  transform: rotate(90deg);
+}
+.restore-preview-label {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.restore-preview-label--new {
+  background: var(--diff-add-bg);
+  color: var(--diff-add);
+}
+.restore-preview-label--overwrite {
+  background: var(--diff-remove-bg);
+  color: var(--danger);
+}
+.restore-preview-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.restore-preview-diff {
+  margin: 8px 0 0 26px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.diff-view {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+.diff-line {
+  display: flex;
+  gap: 8px;
+  padding: 1px 4px;
+}
+.diff-line-marker {
+  flex-shrink: 0;
+  width: 1ch;
+  color: var(--text-dim);
+}
+.diff-line-text {
+  overflow-wrap: anywhere;
+}
+.diff-line--add {
+  background: var(--diff-add-bg);
+}
+.diff-line--add .diff-line-marker {
+  color: var(--diff-add);
+}
+.diff-line--remove {
+  background: var(--diff-remove-bg);
+}
+.diff-line--remove .diff-line-marker {
+  color: var(--danger);
+}
+.diff-fallback-note {
+  margin: 0;
+  font-style: italic;
+}
+
+.restore-confirm-gate {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.restore-confirm-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.restore-confirm-status {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--danger);
+  min-height: 1em;
+}
+.restore-confirm-commit-btn {
+  padding: 10px 18px;
+  margin-right: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.restore-confirm-commit-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+.restore-confirm-cancel-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.restore-confirm-cancel-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.restore-confirm-commit-btn:disabled,
+.restore-confirm-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

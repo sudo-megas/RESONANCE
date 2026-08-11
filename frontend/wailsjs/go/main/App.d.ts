@@ -10,7 +10,11 @@ export function ChooseVaultPath():Promise<string>;
 
 export function CopyVaultTo(arg1:string):Promise<void>;
 
+export function GetDiffPair(arg1:string,arg2:string):Promise<main.DiffPair>;
+
 export function GetLicenseText():Promise<string>;
+
+export function GetMachineInfo():Promise<main.MachineInfo>;
 
 export function GetMirrorRows():Promise<Array<main.AppRow>>;
 
@@ -21,6 +25,8 @@ export function MoveVaultTo(arg1:string):Promise<void>;
 export function PickFiles():Promise<Array<string>>;
 
 export function ProbeVaultPath(arg1:string):Promise<main.VaultProbe>;
+
+export function RestoreApp(arg1:string):Promise<main.RestoreResult>;
 
 export function SaveSettings(arg1:main.Settings):Promise<void>;
 

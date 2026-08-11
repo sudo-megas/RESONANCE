@@ -2,6 +2,7 @@ import { main } from "../wailsjs/go/models";
 import { GetMirrorRows } from "../wailsjs/go/main/App";
 import { formatDate, formatLastUpdated } from "./dates";
 import { openUpdateConfirm } from "./update";
+import { openRestoreConfirm } from "./restore";
 
 // Single source of truth for the mirror's data. Expand/collapse is a pure
 // client-side toggle against this cache — every file's drift state was
@@ -86,6 +87,15 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
 
   const spine = document.createElement("div");
   spine.className = "mirror-row-cell mirror-row-spine";
+
+  const restoreBtn = document.createElement("button");
+  restoreBtn.type = "button";
+  restoreBtn.className = "spine-restore-btn";
+  restoreBtn.setAttribute("aria-label", `Restore ${row.name} from vault`);
+  restoreBtn.textContent = "←";
+  restoreBtn.addEventListener("click", () => openRestoreConfirm(row));
+  spine.appendChild(restoreBtn);
+
   const badge = driftBadge(rowState(row));
   if (badge) spine.appendChild(badge);
 
