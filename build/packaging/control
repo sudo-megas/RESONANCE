@@ -1,0 +1,13 @@
+Package: resonance
+Version: 0.5.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Maintainer: sudo-megas <sudo-megas@users.noreply.github.com>
+Homepage: https://github.com/sudo-megas/RESONANCE
+Description: Dotfile syncing that is for "users" not developers
+ RESONANCE mirrors your dotfiles between $HOME and a vault directory:
+ add an app's files once, and it tracks checksum-based drift, backs up
+ changes, and restores byte-identical copies with a pre-restore undo
+ snapshot. GPL-3.0-or-later.

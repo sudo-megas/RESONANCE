@@ -38,6 +38,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetUndoInfo(arg1) {
+  return window['go']['main']['App']['GetUndoInfo'](arg1);
+}
+
 export function MoveVaultTo(arg1) {
   return window['go']['main']['App']['MoveVaultTo'](arg1);
 }
@@ -56,6 +60,10 @@ export function RestoreApp(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function UndoRestore(arg1) {
+  return window['go']['main']['App']['UndoRestore'](arg1);
 }
 
 export function UpdateFromSource(arg1) {

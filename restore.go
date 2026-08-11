@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 	"unicode/utf8"
 )
 
@@ -131,6 +132,12 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 // trusting whatever the frontend's preview fetched earlier — opening the
 // preview and clicking Restore aren't atomic, so the commit re-checks
 // instead of acting on a possibly-stale snapshot.
+//
+// Before any file is mutated, its current state is captured into a
+// pending undo directory (never the canonical one — see the commit step
+// below). Capture failure is fail-closed: that file is skipped, same as
+// any other per-file failure, so a file is never mutated without its
+// prior state safely tucked aside first.
 func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	result := RestoreResult{New: []string{}, Overwritten: []string{}, Skipped: []string{}, Failed: []RestoreFailure{}}
 
@@ -158,6 +165,20 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		return result, errors.New("no such app")
 	}
 
+	undoRoot, err := undoRootDir()
+	if err != nil {
+		return result, err
+	}
+	canonicalUndoDir := filepath.Join(undoRoot, name)
+	pendingUndoDir := filepath.Join(undoRoot, name+".pending")
+	// Abandoned by a previous run that never reached the commit step below
+	// (crash, or the final writeSnapshot itself failing) — the old
+	// canonical snapshot, if any, was left untouched, so this is just
+	// clearing stale scratch space, never data anyone still needs.
+	_ = os.RemoveAll(pendingUndoDir)
+
+	var entries []SnapshotEntry
+
 	app := m.Apps[appIndex]
 	for _, f := range app.Files {
 		row := fileDriftRow(home, f)
@@ -171,6 +192,19 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
 			continue
 		}
+
+		entry, err := captureEntry(pendingUndoDir, f.Path, destPath)
+		if err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
+			continue
+		}
+		// Recorded as soon as capture succeeds, before the mutation below
+		// is attempted — if removeSymlinkAt or copyFile then fails
+		// partway, destPath may already have been altered, so its prior
+		// state still belongs in the snapshot even though this file also
+		// lands in Failed.
+		entries = append(entries, entry)
+
 		vaultFile := filepath.Join(settings.VaultPath, app.Name, filepath.FromSlash(f.Path))
 
 		if err := removeSymlinkAt(destPath); err != nil {
@@ -187,6 +221,22 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		} else {
 			result.Overwritten = append(result.Overwritten, f.Path)
 		}
+	}
+
+	// Stage-then-commit: only touch the canonical snapshot once the new
+	// one has fully succeeded. A fully no-op restore (nothing captured)
+	// leaves any existing snapshot exactly as it was — that's what makes
+	// retention "keep 1 per app" without a separate prune step. If
+	// writeSnapshot itself fails, pendingUndoDir is simply abandoned and
+	// the old canonical snapshot survives untouched; worst case this run's
+	// undo capability is lost, never "undo replays wrong bytes."
+	if len(entries) > 0 {
+		snap := RestoreSnapshot{
+			App:       name,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			Entries:   entries,
+		}
+		_ = commitSnapshot(pendingUndoDir, canonicalUndoDir, snap)
 	}
 
 	return result, nil

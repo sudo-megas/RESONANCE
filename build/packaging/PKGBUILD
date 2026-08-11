@@ -1,0 +1,31 @@
+# Maintainer: sudo-megas <sudo-megas@users.noreply.github.com>
+#
+# This PKGBUILD packages an already-built RESONANCE binary — it does not
+# compile the app itself. CI's package-arch job downloads the build job's
+# binary artifact and stages it here before running makepkg, so the .deb
+# and the Arch package always wrap the exact same tested bytes. To build
+# locally: run `wails build -tags webkit2_41` from the repo root first
+# (producing build/bin/resonance), then `makepkg` from this directory.
+pkgname=resonance
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="Dotfile syncing that is for \"users\" not developers"
+arch=('x86_64')
+url="https://github.com/sudo-megas/RESONANCE"
+license=('GPL-3.0-or-later')
+depends=('webkit2gtk-4.1' 'gtk3')
+
+# No source=() array: makepkg's local-source resolution only looks up
+# bare basenames inside this directory, not arbitrary relative paths, so
+# a pre-built binary living elsewhere in the tree is read directly in
+# package() instead of going through the fetch/checksum pipeline.
+package() {
+  install -Dm755 "${startdir}/../bin/resonance" "${pkgdir}/usr/bin/resonance"
+  install -Dm644 "${startdir}/resonance.desktop" "${pkgdir}/usr/share/applications/resonance.desktop"
+  install -Dm644 "${startdir}/../icons/32.png" "${pkgdir}/usr/share/icons/hicolor/32x32/apps/resonance.png"
+  install -Dm644 "${startdir}/../icons/48.png" "${pkgdir}/usr/share/icons/hicolor/48x48/apps/resonance.png"
+  install -Dm644 "${startdir}/../icons/64.png" "${pkgdir}/usr/share/icons/hicolor/64x64/apps/resonance.png"
+  install -Dm644 "${startdir}/../icons/128.png" "${pkgdir}/usr/share/icons/hicolor/128x128/apps/resonance.png"
+  install -Dm644 "${startdir}/../icons/256.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/resonance.png"
+  install -Dm644 "${startdir}/../icons/512.png" "${pkgdir}/usr/share/icons/hicolor/512x512/apps/resonance.png"
+}

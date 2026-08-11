@@ -1,0 +1,179 @@
+name: Release
+
+# push:tags is the real release trigger; workflow_dispatch exists purely as
+# a dry-run — it runs build + both packaging jobs on real GitHub Actions
+# infrastructure without ever calling `gh release create` (see the `release`
+# job's `if:` below). Go/Wails CLI are pinned to go.mod's exact versions;
+# every third-party Action below is pinned to a full commit SHA, never a
+# floating tag — resolved by hand against each action's real tag history at
+# the time this file was written, not from memory.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.25.0"
+  WAILS_VERSION: "v2.14.0"
+  NODE_VERSION: "22"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build
+        run: wails build -tags webkit2_41 -platform linux/amd64
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: resonance-linux-amd64
+          path: build/bin/resonance
+          retention-days: 1
+
+  package-deb:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resonance-linux-amd64
+          path: artifact
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assemble .deb
+        run: |
+          set -e
+          VERSION="${{ steps.version.outputs.value }}"
+          ROOT="pkgroot"
+          install -Dm755 artifact/resonance "$ROOT/usr/bin/resonance"
+          install -Dm644 build/packaging/resonance.desktop "$ROOT/usr/share/applications/resonance.desktop"
+          for size in 32 48 64 128 256 512; do
+            install -Dm644 "build/icons/${size}.png" "$ROOT/usr/share/icons/hicolor/${size}x${size}/apps/resonance.png"
+          done
+          mkdir -p "$ROOT/DEBIAN"
+          sed "s/^Version:.*/Version: ${VERSION}/" build/packaging/control > "$ROOT/DEBIAN/control"
+          dpkg-deb --build --root-owner-group "$ROOT" "resonance_${VERSION}_amd64.deb"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: resonance-deb
+          path: "*.deb"
+          retention-days: 1
+
+  package-arch:
+    needs: build
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resonance-linux-amd64
+          path: build/bin
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Arch package
+        run: |
+          set -e
+          chmod +x build/bin/resonance
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.value }}/" build/packaging/PKGBUILD
+          # makepkg refuses to run as root (the container's default user) —
+          # a throwaway build user is the standard workaround, and since
+          # this PKGBUILD only packages an already-built binary (no
+          # --syncdeps, nothing to compile), it needs no sudo access.
+          useradd -m builder
+          chown -R builder:builder build/
+          su builder -c "cd build/packaging && makepkg --noconfirm"
+          mv build/packaging/*.pkg.tar.zst .
+
+      - name: Upload Arch package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: resonance-arch
+          path: "*.pkg.tar.zst"
+          retention-days: 1
+
+  release:
+    needs: [package-deb, package-arch]
+    runs-on: ubuntu-24.04
+    # workflow_dispatch is the dry-run trigger: build + both packaging jobs
+    # already ran and proved themselves above, but this job — the one that
+    # actually touches GitHub Releases — never runs for it.
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - name: Download .deb artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resonance-deb
+
+      - name: Download Arch package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resonance-arch
+
+      # v1.0.0 is the only tag this project ever publishes as a normal,
+      # full GitHub release — every other tag is a pre-release. See
+      # build/docs/STEP5.md §4.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          PRERELEASE_FLAG="--prerelease"
+          if [ "${{ github.ref_name }}" = "v1.0.0" ]; then
+            PRERELEASE_FLAG=""
+          fi
+          gh release create "${{ github.ref_name }}" *.deb *.pkg.tar.zst \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            $PRERELEASE_FLAG

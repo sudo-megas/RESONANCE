@@ -2,3 +2,9 @@ build/bin
 node_modules
 frontend/dist
 .claude/
+
+# makepkg scratch, left behind by a local build/packaging/PKGBUILD run
+build/packaging/pkg/
+build/packaging/src/
+build/packaging/*.pkg.tar.*
+build/packaging/*.deb

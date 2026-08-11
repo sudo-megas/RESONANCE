@@ -20,6 +20,8 @@ export function GetMirrorRows():Promise<Array<main.AppRow>>;
 
 export function GetSettings():Promise<main.Settings>;
 
+export function GetUndoInfo(arg1:string):Promise<main.UndoInfo>;
+
 export function MoveVaultTo(arg1:string):Promise<void>;
 
 export function PickFiles():Promise<Array<string>>;
@@ -29,5 +31,7 @@ export function ProbeVaultPath(arg1:string):Promise<main.VaultProbe>;
 export function RestoreApp(arg1:string):Promise<main.RestoreResult>;
 
 export function SaveSettings(arg1:main.Settings):Promise<void>;
+
+export function UndoRestore(arg1:string):Promise<main.UndoResult>;
 
 export function UpdateFromSource(arg1:string):Promise<main.UpdateResult>;

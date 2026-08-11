@@ -391,3 +391,20 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+/* Status bar */
+.statusbar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  background: var(--pane);
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

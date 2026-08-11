@@ -9,6 +9,15 @@ export interface ThemeDef {
 export const THEMES: ThemeDef[] = [
   { id: "default-dark", name: "Default Dark" },
   { id: "ubuntu-aubergine", name: "Ubuntu Aubergine Canonical" },
+  { id: "default-light", name: "Default Light" },
+  { id: "noctalia", name: "Noctalia" },
+  { id: "catppuccin-latte", name: "Catppuccin Latte" },
+  { id: "catppuccin-frappe", name: "Catppuccin Frappé" },
+  { id: "catppuccin-macchiato", name: "Catppuccin Macchiato" },
+  { id: "catppuccin-mocha", name: "Catppuccin Mocha" },
+  { id: "rose-pine-dawn", name: "Rosé Pine Dawn" },
+  { id: "nord", name: "Nord" },
+  { id: "kanagawa-lotus", name: "Kanagawa Lotus" },
 ];
 
 const DEFAULT_THEME_ID = "default-dark";

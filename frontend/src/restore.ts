@@ -1,8 +1,9 @@
 import { main } from "../wailsjs/go/models";
-import { GetMachineInfo, GetDiffPair, RestoreApp } from "../wailsjs/go/main/App";
+import { GetMachineInfo, GetDiffPair, RestoreApp, GetUndoInfo, UndoRestore } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
 import { extractErrorMessage, formatSize } from "./util";
+import { formatDateTime } from "./dates";
 import { refreshMirror } from "./rows";
 import { renderDiff } from "./diff";
 
@@ -161,8 +162,109 @@ function summarizeResult(result: main.RestoreResult): string {
   return parts.length === 0 ? "Already up to date" : parts.join(", ");
 }
 
+function summarizeUndoResult(result: main.UndoResult): string {
+  const parts: string[] = [];
+  const r = result.restored.length;
+  const f = result.failed.length;
+  if (r > 0) parts.push(r === 1 ? "1 file restored" : `${r} files restored`);
+  if (f > 0) parts.push(f === 1 ? "1 failed" : `${f} failed`);
+  return parts.length === 0 ? "Nothing restored" : parts.join(", ");
+}
+
+// The reduced-mode overlay reachable once a row is back in sync but still
+// has an undo snapshot on hand — same checkbox-gate + commit pattern as a
+// real restore, since undo overwrites live files too and deserves the same
+// "this touches your system" friction. No New/Overwrite list: there's
+// nothing to preview, only a prior state to put back.
+function openUndoConfirm(row: main.AppRow, info: main.UndoInfo): void {
+  const content = document.createElement("div");
+  content.className = "restore-confirm restore-confirm--undo";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "overlay-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "";
+  closeBtn.addEventListener("click", () => closeOverlay());
+  content.appendChild(closeBtn);
+
+  const heading = document.createElement("h2");
+  heading.className = "overlay-heading";
+  heading.textContent = `Undo restore for ${row.name}`;
+  content.appendChild(heading);
+
+  const summary = document.createElement("p");
+  summary.className = "restore-preview-summary";
+  const fileWord = info.fileCount === 1 ? "file" : "files";
+  summary.textContent = `Nothing to restore. Undo restore from ${formatDateTime(info.createdAt)} (${info.fileCount} ${fileWord})?`;
+  content.appendChild(summary);
+
+  const gateLabel = document.createElement("label");
+  gateLabel.className = "restore-confirm-gate";
+  const gateCheckbox = document.createElement("input");
+  gateCheckbox.type = "checkbox";
+  gateCheckbox.className = "restore-confirm-checkbox";
+  const gateText = document.createElement("span");
+  gateText.textContent = "I understand this will overwrite files on this system.";
+  gateLabel.appendChild(gateCheckbox);
+  gateLabel.appendChild(gateText);
+  content.appendChild(gateLabel);
+
+  const status = document.createElement("p");
+  status.className = "restore-confirm-status";
+  content.appendChild(status);
+
+  const commitBtn = document.createElement("button");
+  commitBtn.type = "button";
+  commitBtn.className = "restore-confirm-commit-btn";
+  commitBtn.textContent = "Undo Restore";
+  commitBtn.disabled = true;
+  content.appendChild(commitBtn);
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "restore-confirm-cancel-btn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => closeOverlay());
+  content.appendChild(cancelBtn);
+
+  gateCheckbox.addEventListener("change", () => {
+    commitBtn.disabled = !gateCheckbox.checked;
+  });
+
+  commitBtn.addEventListener("click", async () => {
+    commitBtn.disabled = true;
+    cancelBtn.disabled = true;
+    gateCheckbox.disabled = true;
+    status.textContent = "";
+    try {
+      const result = await UndoRestore(row.name);
+      closeOverlay();
+      await refreshMirror();
+      showToast(summarizeUndoResult(result));
+    } catch (err) {
+      status.textContent = extractErrorMessage(err);
+      commitBtn.disabled = !gateCheckbox.checked;
+      cancelBtn.disabled = false;
+      gateCheckbox.disabled = false;
+    }
+  });
+
+  openOverlay(content, { dismissable: true });
+}
+
 export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   if (!row.drifted) {
+    let undoInfo: main.UndoInfo | null = null;
+    try {
+      undoInfo = await GetUndoInfo(row.name);
+    } catch {
+      undoInfo = null;
+    }
+    if (undoInfo?.available) {
+      openUndoConfirm(row, undoInfo);
+      return;
+    }
     showToast(`${row.name} is already up to date — nothing to restore`);
     return;
   }

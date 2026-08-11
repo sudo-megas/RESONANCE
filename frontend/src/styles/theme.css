@@ -104,6 +104,186 @@
   --diff-remove-bg: rgba(201, 106, 95, 0.14);
 }
 
+[data-theme="default-light"] {
+  --bg: #eceef0;
+  --pane: #f7f8f9;
+  --spine: #ffffff;
+  --text: #1b1f24;
+  --text-dim: #59616b;
+  --accent: #2f7d6f;
+  --accent-2: #2f5f96;
+  --danger: #a8433a;
+  --badge-drift: #8a6416;
+  --border: #d3d8dd;
+  --border-strong: #b3bbc4;
+  --focus-ring: #2f7d6f;
+  --overlay-scrim: rgba(226, 229, 232, 0.72);
+  --overlay-panel: #ffffff;
+  --diff-add: #3f7a3a;
+  --diff-add-bg: rgba(63, 122, 58, 0.14);
+  --diff-remove-bg: rgba(168, 67, 58, 0.14);
+}
+
+[data-theme="noctalia"] {
+  --bg: #070722;
+  --pane: #11112d;
+  --spine: #181840;
+  --text: #f3edf7;
+  --text-dim: #b9bce0;
+  --accent: #fff59b;
+  --accent-2: #a9aefe;
+  --danger: #fd4663;
+  --badge-drift: #ffc46b;
+  --border: #21215f;
+  --border-strong: #2e2e7a;
+  --focus-ring: #a9aefe;
+  --overlay-scrim: rgba(4, 4, 26, 0.72);
+  --overlay-panel: #181840;
+  --diff-add: #9bfece;
+  --diff-add-bg: rgba(155, 254, 206, 0.14);
+  --diff-remove-bg: rgba(253, 70, 99, 0.14);
+}
+
+[data-theme="catppuccin-latte"] {
+  --bg: #e6e9ef;
+  --pane: #eff1f5;
+  --spine: #eff1f5;
+  --text: #4c4f69;
+  --text-dim: #5c5f77;
+  --accent: #1e66f5;
+  --accent-2: #179299;
+  --danger: #d20f39;
+  --badge-drift: #df8e1d;
+  --border: #bcc0cc;
+  --border-strong: #acb0be;
+  --focus-ring: #7287fd;
+  --overlay-scrim: rgba(220, 224, 232, 0.72);
+  --overlay-panel: #eff1f5;
+  --diff-add: #40a02b;
+  --diff-add-bg: rgba(64, 160, 43, 0.14);
+  --diff-remove-bg: rgba(210, 15, 57, 0.14);
+}
+
+[data-theme="catppuccin-frappe"] {
+  --bg: #303446;
+  --pane: #414559;
+  --spine: #51576d;
+  --text: #c6d0f5;
+  --text-dim: #b5bfe2;
+  --accent: #8caaee;
+  --accent-2: #81c8be;
+  --danger: #e78284;
+  --badge-drift: #e5c890;
+  --border: #51576d;
+  --border-strong: #626880;
+  --focus-ring: #babbf1;
+  --overlay-scrim: rgba(41, 44, 60, 0.72);
+  --overlay-panel: #51576d;
+  --diff-add: #a6d189;
+  --diff-add-bg: rgba(166, 209, 137, 0.14);
+  --diff-remove-bg: rgba(231, 130, 132, 0.14);
+}
+
+[data-theme="catppuccin-macchiato"] {
+  --bg: #24273a;
+  --pane: #363a4f;
+  --spine: #494d64;
+  --text: #cad3f5;
+  --text-dim: #b8c0e0;
+  --accent: #8aadf4;
+  --accent-2: #8bd5ca;
+  --danger: #ed8796;
+  --badge-drift: #eed49f;
+  --border: #494d64;
+  --border-strong: #5b6078;
+  --focus-ring: #b7bdf8;
+  --overlay-scrim: rgba(30, 32, 48, 0.72);
+  --overlay-panel: #494d64;
+  --diff-add: #a6da95;
+  --diff-add-bg: rgba(166, 218, 149, 0.14);
+  --diff-remove-bg: rgba(237, 135, 150, 0.14);
+}
+
+[data-theme="catppuccin-mocha"] {
+  --bg: #1e1e2e;
+  --pane: #313244;
+  --spine: #45475a;
+  --text: #cdd6f4;
+  --text-dim: #bac2de;
+  --accent: #89b4fa;
+  --accent-2: #94e2d5;
+  --danger: #f38ba8;
+  --badge-drift: #f9e2af;
+  --border: #45475a;
+  --border-strong: #585b70;
+  --focus-ring: #b4befe;
+  --overlay-scrim: rgba(24, 24, 37, 0.72);
+  --overlay-panel: #45475a;
+  --diff-add: #a6e3a1;
+  --diff-add-bg: rgba(166, 227, 161, 0.14);
+  --diff-remove-bg: rgba(243, 139, 168, 0.14);
+}
+
+[data-theme="rose-pine-dawn"] {
+  --bg: #faf4ed;
+  --pane: #fffaf3;
+  --spine: #fffaf3;
+  --text: #575279;
+  --text-dim: #797593;
+  --accent: #286983;
+  --accent-2: #56949f;
+  --danger: #b4637a;
+  --badge-drift: #ea9d34;
+  --border: #dfdad9;
+  --border-strong: #cecacd;
+  --focus-ring: #907aa9;
+  --overlay-scrim: rgba(242, 233, 225, 0.72);
+  --overlay-panel: #fffaf3;
+  --diff-add: #568259;
+  --diff-add-bg: rgba(86, 130, 89, 0.14);
+  --diff-remove-bg: rgba(180, 99, 122, 0.14);
+}
+
+[data-theme="nord"] {
+  --bg: #2e3440;
+  --pane: #3b4252;
+  --spine: #434c5e;
+  --text: #eceff4;
+  --text-dim: #d8dee9;
+  --accent: #88c0d0;
+  --accent-2: #81a1c1;
+  --danger: #bf616a;
+  --badge-drift: #ebcb8b;
+  --border: #434c5e;
+  --border-strong: #4c566a;
+  --focus-ring: #88c0d0;
+  --overlay-scrim: rgba(39, 44, 54, 0.72);
+  --overlay-panel: #434c5e;
+  --diff-add: #a3be8c;
+  --diff-add-bg: rgba(163, 190, 140, 0.14);
+  --diff-remove-bg: rgba(191, 97, 106, 0.14);
+}
+
+[data-theme="kanagawa-lotus"] {
+  --bg: #e5ddb0;
+  --pane: #f2ecbc;
+  --spine: #f2ecbc;
+  --text: #545464;
+  --text-dim: #716e61;
+  --accent: #4d699b;
+  --accent-2: #597b75;
+  --danger: #c84053;
+  --badge-drift: #cc6d00;
+  --border: #d5cea3;
+  --border-strong: #8a8980;
+  --focus-ring: #5d57a3;
+  --overlay-scrim: rgba(220, 213, 172, 0.72);
+  --overlay-panel: #f2ecbc;
+  --diff-add: #6f894e;
+  --diff-add-bg: rgba(111, 137, 78, 0.14);
+  --diff-remove-bg: rgba(200, 64, 83, 0.14);
+}
+
 * {
   box-sizing: border-box;
 }

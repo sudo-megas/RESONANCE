@@ -3,6 +3,7 @@ import { GetMirrorRows } from "../wailsjs/go/main/App";
 import { formatDate, formatLastUpdated } from "./dates";
 import { openUpdateConfirm } from "./update";
 import { openRestoreConfirm } from "./restore";
+import { refreshStatusbar } from "./statusbar";
 
 // Single source of truth for the mirror's data. Expand/collapse is a pure
 // client-side toggle against this cache — every file's drift state was
@@ -16,6 +17,7 @@ export async function refreshMirror(): Promise<void> {
   try {
     const rows = await GetMirrorRows();
     renderRows(rows);
+    await refreshStatusbar(rows);
   } catch (err) {
     console.error(err);
   }

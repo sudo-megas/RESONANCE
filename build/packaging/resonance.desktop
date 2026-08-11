@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RESONANCE
+Comment=Dotfile syncing that is for "users" not developers
+Exec=resonance
+Icon=resonance
+Terminal=false
+Categories=Utility;System;
+StartupWMClass=resonance
