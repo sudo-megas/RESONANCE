@@ -1,0 +1,169 @@
+/* Logo mark — a simple pair of mirrored rings, standing in for the maker's
+   PNG until it lands at build/icons/. Pure CSS so no placeholder image asset
+   is shipped that would need to be remembered and swapped out later. */
+.logo-mark {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.logo-mark::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 2px solid var(--accent-2);
+  border-radius: 50%;
+}
+.logo-mark--large {
+  width: 56px;
+  height: 56px;
+  border-width: 3px;
+}
+.logo-mark--large::after {
+  inset: 15px;
+  border-width: 3px;
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  background: var(--pane);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.app-name {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vault-path {
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: default;
+}
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--spine);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Mirror shell */
+.mirror {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+.pane {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--pane);
+}
+.pane-system {
+  border-right: 1px solid var(--border);
+}
+.pane-vault {
+  border-left: 1px solid var(--border);
+}
+.pane-label {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+.spine {
+  width: 96px;
+  background: var(--spine);
+  border-left: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+}
+
+/* Empty state — centered over the whole mirror, STEP1 always shows this
+   since no app data exists yet */
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  pointer-events: none;
+}
+.empty-state > * {
+  pointer-events: auto;
+}
+.add-app-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.add-app-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.add-app-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--overlay-panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+}
+.toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}

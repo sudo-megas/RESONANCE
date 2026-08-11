@@ -1,0 +1,79 @@
+/*
+ * Every color in the app lives here as a CSS custom property.
+ * A theme is nothing but a [data-theme="..."] block overriding these tokens —
+ * adding a palette in a later STEP must never require touching any other CSS file.
+ */
+
+:root {
+  /* Default Dark values, duplicated below in [data-theme="default-dark"].
+     Kept here too so the very first paint (before main.ts resolves the
+     persisted theme) already matches main.go's BackgroundColour. */
+  --bg: #101215;
+  --pane: #171a1f;
+  --spine: #1e222a;
+  --text: #e6e9ee;
+  --text-dim: #98a1af;
+  --accent: #4a9d8e;
+  --accent-2: #5f92c9;
+  --danger: #c96a5f;
+  --badge-drift: #c9a25f;
+  --border: #262b33;
+  --border-strong: #39414d;
+  --focus-ring: #5cb3a3;
+  --overlay-scrim: rgba(12, 14, 17, 0.72);
+  --overlay-panel: #1e222a;
+}
+
+[data-theme="default-dark"] {
+  --bg: #101215;
+  --pane: #171a1f;
+  --spine: #1e222a;
+  --text: #e6e9ee;
+  --text-dim: #98a1af;
+  --accent: #4a9d8e;
+  --accent-2: #5f92c9;
+  --danger: #c96a5f;
+  --badge-drift: #c9a25f;
+  --border: #262b33;
+  --border-strong: #39414d;
+  --focus-ring: #5cb3a3;
+  --overlay-scrim: rgba(12, 14, 17, 0.72);
+  --overlay-panel: #1e222a;
+}
+
+[data-theme="ubuntu-aubergine"] {
+  --bg: #2C001E;
+  --pane: #5E2750;
+  --spine: #772953;
+  --text: #F5F2F0;
+  --text-dim: #AEA79F;
+  --accent: #E95420;
+  --accent-2: #F08C4F;
+  --danger: #c96a5f;
+  --badge-drift: #c9a25f;
+  --border: #77216F;
+  --border-strong: #AEA79F;
+  --focus-ring: #F08C4F;
+  --overlay-scrim: rgba(44, 0, 30, 0.72);
+  --overlay-panel: #772953;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

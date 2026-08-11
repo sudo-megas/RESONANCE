@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>RESONANCE</title>
+</head>
+<body>
+<div id="app">
+    <header class="topbar">
+        <div class="topbar-brand">
+            <span class="logo-mark" aria-hidden="true"></span>
+            <span class="app-name">RESONANCE</span>
+        </div>
+        <div class="topbar-actions">
+            <span class="vault-path" id="vault-path" title="Not set yet — arrives in v0.2.0">Vault: not set</span>
+            <button class="icon-btn" id="theme-btn" type="button" aria-label="Change theme">◐</button>
+            <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE">?</button>
+        </div>
+    </header>
+    <main class="mirror">
+        <section class="pane pane-system" id="pane-system" aria-label="System">
+            <h2 class="pane-label">SYSTEM</h2>
+            <div class="pane-body" id="system-body"></div>
+        </section>
+        <div class="spine" id="spine" aria-hidden="true"></div>
+        <section class="pane pane-vault" id="pane-vault" aria-label="Vault">
+            <h2 class="pane-label">VAULT</h2>
+            <div class="pane-body" id="vault-body"></div>
+        </section>
+        <div class="empty-state" id="empty-state">
+            <span class="logo-mark logo-mark--large" aria-hidden="true"></span>
+            <button class="add-app-btn" id="add-app-btn" type="button">＋ Add your first app</button>
+        </div>
+    </main>
+    <div id="overlay-root"></div>
+    <div id="toast-root"></div>
+</div>
+<script src="./src/main.ts" type="module"></script>
+</body>
+</html>

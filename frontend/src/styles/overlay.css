@@ -1,0 +1,180 @@
+/* The shared overlay grammar: every secondary view (theme picker, About,
+   and future diff/preview/machine-info/add-app overlays) dims the mirror
+   and expands a panel from the center outward. */
+.overlay-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-scrim);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.overlay-scrim.overlay-open {
+  opacity: 1;
+}
+.overlay-panel {
+  position: relative;
+  max-width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding: 28px;
+  border-radius: 14px;
+  background: var(--overlay-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  transform: scale(0.96);
+  transition: transform 200ms ease;
+}
+.overlay-scrim.overlay-open .overlay-panel {
+  transform: scale(1);
+}
+.overlay-heading {
+  margin: 0 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.overlay-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.overlay-close:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Theme picker */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--pane);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.theme-card:hover {
+  border-color: var(--border-strong);
+}
+.theme-card--active {
+  border-color: var(--accent);
+}
+.theme-card-swatch {
+  display: block;
+  height: 48px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--bg) 0%, var(--pane) 45%, var(--accent) 100%);
+}
+.theme-card-label {
+  font-size: 13px;
+}
+
+/* About */
+.about-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+.logo-mark--about {
+  width: 44px;
+  height: 44px;
+  border-width: 3px;
+  margin-bottom: 10px;
+}
+.about-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.about-tagline {
+  margin: 4px 0 20px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.about-grid {
+  align-self: stretch;
+  margin: 0 0 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 16px;
+  row-gap: 8px;
+  text-align: left;
+  font-size: 13px;
+}
+.about-grid dt {
+  color: var(--text-dim);
+}
+.about-grid dd {
+  margin: 0;
+}
+.about-source {
+  user-select: text;
+  cursor: text;
+}
+.about-privacy-note {
+  align-self: stretch;
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: left;
+}
+.about-separator {
+  align-self: stretch;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0 0 16px;
+}
+.about-license-heading {
+  align-self: flex-start;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.about-license-text {
+  align-self: stretch;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0 0 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  text-align: left;
+  user-select: text;
+}
+.about-footer {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
