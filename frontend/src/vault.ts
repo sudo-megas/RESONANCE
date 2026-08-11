@@ -6,10 +6,10 @@ import {
   AdoptVaultPath,
   CopyVaultTo,
   MoveVaultTo,
-  ListApps,
 } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
-import { renderRows } from "./rows";
+import { refreshMirror } from "./rows";
+import { extractErrorMessage } from "./util";
 
 export function refreshVaultPathDisplay(path: string): void {
   const el = document.getElementById("vault-path-display")!;
@@ -17,26 +17,12 @@ export function refreshVaultPathDisplay(path: string): void {
   el.title = path;
 }
 
-async function refreshRows(): Promise<void> {
-  try {
-    const apps = await ListApps();
-    renderRows(apps);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
 /**
  * Mandatory, non-dismissable first-launch prompt. Resolves once a vault
  * path has actually been chosen and saved. There is nothing to migrate
  * here — VaultPath was empty, so whatever's at the chosen folder (fresh,
  * or an existing vault carried over from another machine) is simply
- * adopted as-is once ListApps/renderRows run afterward.
+ * adopted as-is once refreshMirror() runs afterward.
  */
 export function openVaultPrompt(): Promise<void> {
   return new Promise((resolve) => {
@@ -131,7 +117,7 @@ export function openChangePath(): void {
   async function finish(): Promise<void> {
     const settings = await GetSettings();
     refreshVaultPathDisplay(settings.vaultPath);
-    await refreshRows();
+    await refreshMirror();
     closeOverlay();
   }
 

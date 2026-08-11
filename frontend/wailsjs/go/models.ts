@@ -1,29 +1,37 @@
 export namespace main {
 	
-	export class ManifestFile {
+	export class FileRow {
 	    path: string;
+	    state: string;
+	    sourceModified: string;
+	    vaultModified: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new ManifestFile(source);
+	        return new FileRow(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
+	        this.state = source["state"];
+	        this.sourceModified = source["sourceModified"];
+	        this.vaultModified = source["vaultModified"];
 	    }
 	}
-	export class ManifestApp {
+	export class AppRow {
 	    name: string;
-	    files: ManifestFile[];
+	    files: FileRow[];
+	    drifted: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new ManifestApp(source);
+	        return new AppRow(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
-	        this.files = this.convertValues(source["files"], ManifestFile);
+	        this.files = this.convertValues(source["files"], FileRow);
+	        this.drifted = source["drifted"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -57,6 +65,22 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
 	        this.vaultPath = source["vaultPath"];
+	    }
+	}
+	export class UpdateResult {
+	    updated: string[];
+	    skipped: string[];
+	    missing: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.updated = source["updated"];
+	        this.skipped = source["skipped"];
+	        this.missing = source["missing"];
 	    }
 	}
 	export class VaultProbe {

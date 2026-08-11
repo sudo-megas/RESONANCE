@@ -118,23 +118,15 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		if err := copyFile(sources[i], dst); err != nil {
 			return err
 		}
+		size, checksum, backedUpAt, err := vaultFileMeta(dst)
+		if err != nil {
+			return err
+		}
+		files[i].Size = size
+		files[i].Checksum = checksum
+		files[i].BackedUpAt = backedUpAt
 	}
 
 	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: files})
 	return saveManifest(settings.VaultPath, m)
-}
-
-// ListApps returns an empty slice rather than surfacing an error when
-// there's no vault path yet or the vault is fresh and empty — both are
-// normal, expected states, not failures.
-func (a *App) ListApps() ([]ManifestApp, error) {
-	settings := a.GetSettings()
-	if settings.VaultPath == "" {
-		return []ManifestApp{}, nil
-	}
-	m, err := loadManifest(settings.VaultPath)
-	if err != nil {
-		return []ManifestApp{}, nil
-	}
-	return m.Apps, nil
 }

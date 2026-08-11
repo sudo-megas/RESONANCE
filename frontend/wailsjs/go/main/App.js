@@ -22,12 +22,12 @@ export function GetLicenseText() {
   return window['go']['main']['App']['GetLicenseText']();
 }
 
-export function GetSettings() {
-  return window['go']['main']['App']['GetSettings']();
+export function GetMirrorRows() {
+  return window['go']['main']['App']['GetMirrorRows']();
 }
 
-export function ListApps() {
-  return window['go']['main']['App']['ListApps']();
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
 }
 
 export function MoveVaultTo(arg1) {
@@ -44,4 +44,8 @@ export function ProbeVaultPath(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function UpdateFromSource(arg1) {
+  return window['go']['main']['App']['UpdateFromSource'](arg1);
 }

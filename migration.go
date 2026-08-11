@@ -131,10 +131,14 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// verifyTreesMatch re-walks both trees and compares file presence and size.
-// Deliberately size-only, not checksummed — checksums aren't part of
-// STEP2's manifest schema yet (that's STEP3), so this is the right-sized
-// check for this step, not a shortcut past a real one.
+// verifyTreesMatch re-walks both trees and compares file presence, size, and
+// checksum. Size is checked first as a cheap short-circuit — a mismatch is
+// already conclusive, no need to hash — but a size match alone doesn't
+// prove identical content, so both copies are hashed and compared whenever
+// sizes agree. This is migration integrity (comparing two current
+// filesystem trees), a distinct concern from manifest drift (comparing a
+// current source file against a historical stored checksum) — the two
+// never share a call site, only the fileChecksum primitive.
 func verifyTreesMatch(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -151,12 +155,24 @@ func verifyTreesMatch(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		dstInfo, err := os.Stat(filepath.Join(dst, rel))
+		dstPath := filepath.Join(dst, rel)
+		dstInfo, err := os.Stat(dstPath)
 		if err != nil {
 			return fmt.Errorf("missing in copy: %s", rel)
 		}
 		if srcInfo.Size() != dstInfo.Size() {
 			return fmt.Errorf("size mismatch for %s", rel)
+		}
+		srcSum, err := fileChecksum(path)
+		if err != nil {
+			return err
+		}
+		dstSum, err := fileChecksum(dstPath)
+		if err != nil {
+			return err
+		}
+		if srcSum != dstSum {
+			return fmt.Errorf("checksum mismatch for %s", rel)
 		}
 		return nil
 	})

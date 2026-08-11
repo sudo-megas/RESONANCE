@@ -1,13 +1,9 @@
-import { GetSettings, AddApp, PickFiles, ListApps } from "../wailsjs/go/main/App";
+import { GetSettings, AddApp, PickFiles } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
-import { renderRows } from "./rows";
+import { refreshMirror } from "./rows";
 import { openVaultPrompt } from "./vault";
-
-function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
+import { extractErrorMessage } from "./util";
 
 // Mirrors manifest.go's validAppName — the server call is still
 // authoritative, this just avoids a round trip for obviously-invalid input.
@@ -138,8 +134,7 @@ export async function openAddApp(): Promise<void> {
       await AddApp(nameInput.value.trim(), paths);
       closeOverlay();
       showToast(`Added ${nameInput.value.trim()}`);
-      const apps = await ListApps();
-      renderRows(apps);
+      await refreshMirror();
     } catch (err) {
       errorEl.textContent = extractErrorMessage(err);
       submitBtn.disabled = false;

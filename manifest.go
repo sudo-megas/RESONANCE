@@ -26,6 +26,13 @@ type ManifestApp struct {
 
 type ManifestFile struct {
 	Path string `json:"path"`
+
+	// Size, Checksum, and BackedUpAt are additive — absent (zero-valued) on
+	// any manifest.json written before STEP3. backfillChecksums (drift.go)
+	// fills them in for legacy entries on first load.
+	Size       int64  `json:"size"`
+	Checksum   string `json:"checksum"`   // hex sha256 of the vault-side copy at backup time
+	BackedUpAt string `json:"backedUpAt"` // RFC3339 UTC, the vault-side copy's write time
 }
 
 func manifestPath(vaultPath string) string {

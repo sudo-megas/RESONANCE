@@ -21,18 +21,19 @@
             <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE">&#xf059;</button>
         </div>
     </header>
-    <main class="mirror">
-        <section class="pane pane-system" id="pane-system" aria-label="System">
-            <h2 class="pane-label">SYSTEM</h2>
-            <div class="pane-body" id="system-body"></div>
-        </section>
-        <div class="spine" id="spine">
-            <button class="spine-add-btn" id="add-app-btn" type="button" aria-label="Add app">&#xf067;</button>
+    <main class="mirror" aria-label="Mirror">
+        <div class="mirror-rows" id="mirror-rows">
+            <div class="mirror-header-cell mirror-header-system">
+                <h2 class="pane-label">SYSTEM</h2>
+            </div>
+            <div class="mirror-header-cell mirror-header-spine">
+                <button class="spine-add-btn" id="add-app-btn" type="button" aria-label="Add app">&#xf067;</button>
+                <button class="spine-update-all-btn" id="update-all-btn" type="button" aria-label="Update all from source">&#x2192;</button>
+            </div>
+            <div class="mirror-header-cell mirror-header-vault">
+                <h2 class="pane-label">VAULT</h2>
+            </div>
         </div>
-        <section class="pane pane-vault" id="pane-vault" aria-label="Vault">
-            <h2 class="pane-label">VAULT</h2>
-            <div class="pane-body" id="vault-body"></div>
-        </section>
     </main>
     <div id="overlay-root"></div>
     <div id="toast-root"></div>

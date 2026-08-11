@@ -4,7 +4,7 @@
 
 ---
 
-This is an early scaffold (v0.2.0) — the window, the mirror layout, the theme system, and backup now work: choose a vault, add an app's files, and RESONANCE copies them in byte-identical. Restore doesn't exist yet. Full usage documentation arrives once the vault functionality ships with v1.0.0.
+This is an early scaffold (v0.3.0) — the window, the mirror layout, the theme system, backup, and drift detection now work: choose a vault, add an app's files, and RESONANCE copies them in byte-identical. The mirror shows checksum-based drift badges and per-file dates, and "update from source (now)" re-syncs a drifted app after a dates-only confirmation. Restore doesn't exist yet. Full usage documentation arrives once the vault functionality ships with v1.0.0.
 
 ## Licence
 

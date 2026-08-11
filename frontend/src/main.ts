@@ -2,12 +2,13 @@ import "./styles/theme.css";
 import "./styles/layout.css";
 import "./styles/overlay.css";
 
-import { GetSettings, ListApps } from "../wailsjs/go/main/App";
+import { GetSettings } from "../wailsjs/go/main/App";
 import { loadPersistedTheme, openThemePicker } from "./theme-picker";
 import { openAbout } from "./about";
 import { openVaultPrompt, openChangePath, refreshVaultPathDisplay } from "./vault";
 import { openAddApp } from "./addapp";
-import { renderRows } from "./rows";
+import { refreshMirror, getDriftedApps } from "./rows";
+import { openUpdateAllConfirm } from "./update";
 
 async function init(): Promise<void> {
   await loadPersistedTheme();
@@ -16,6 +17,7 @@ async function init(): Promise<void> {
   document.getElementById("about-btn")!.addEventListener("click", () => openAbout());
   document.getElementById("vault-path-btn")!.addEventListener("click", () => openChangePath());
   document.getElementById("add-app-btn")!.addEventListener("click", () => openAddApp());
+  document.getElementById("update-all-btn")!.addEventListener("click", () => openUpdateAllConfirm(getDriftedApps()));
 
   const settings = await GetSettings();
   refreshVaultPathDisplay(settings.vaultPath);
@@ -24,8 +26,7 @@ async function init(): Promise<void> {
     await openVaultPrompt();
   }
 
-  const apps = await ListApps();
-  renderRows(apps);
+  await refreshMirror();
 }
 
 init();
