@@ -4,11 +4,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 const activityFileName = "activity.json"
 const maxActivityEntries = 10
+
+// activityMu serializes every read-modify-write of activity.json.
+// recordActivity's load-append-save sequence has no other coordination —
+// two operations completing close together (e.g. within an Update-All
+// batch) could otherwise both load the same pre-update log, each append
+// their own entry, and each save, with the second save silently
+// discarding the first's entry.
+var activityMu sync.Mutex
 
 // ActivityEntry records one completed add/update/restore/undo operation for
 // the recent-activity popup.
@@ -85,6 +94,8 @@ func saveActivityLog(log ActivityLog) error {
 // dropped from the front). Best-effort by design: a logging failure must
 // never fail the primary operation it's recording — no return value.
 func recordActivity(kind, appName, summary string) {
+	activityMu.Lock()
+	defer activityMu.Unlock()
 	log := loadActivityLog()
 	log.Entries = append(log.Entries, ActivityEntry{
 		Kind:      kind,
@@ -100,6 +111,8 @@ func recordActivity(kind, appName, summary string) {
 
 // GetRecentActivity returns the persisted log, newest first.
 func (a *App) GetRecentActivity() ([]ActivityEntry, error) {
+	activityMu.Lock()
+	defer activityMu.Unlock()
 	log := loadActivityLog()
 	entries := make([]ActivityEntry, len(log.Entries))
 	for i, e := range log.Entries {
