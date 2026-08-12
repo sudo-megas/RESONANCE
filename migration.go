@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // VaultProbe describes what's at a candidate vault path, before RESONANCE
@@ -72,6 +73,19 @@ func (a *App) migrateVault(newPath string, remove bool) error {
 	}
 	if newPath == oldPath {
 		return errors.New("new path is the same as the current vault path")
+	}
+	// ProbeVaultPath's IsEmpty check alone can't tell "an empty folder
+	// nested inside the vault" from "an empty folder anywhere else" — and
+	// the former is completely reachable through the ordinary folder
+	// picker (navigate into the current vault, pick/create an empty
+	// subfolder). Without this guard, copyTree would walk oldPath, copy
+	// newPath's own directory entry partway through, and then recurse into
+	// the copy it just made of itself — unboundedly, until it exhausts
+	// PATH_MAX or disk space.
+	if rel, err := filepath.Rel(oldPath, newPath); err == nil {
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return errors.New("new path can't be inside the current vault")
+		}
 	}
 
 	probe, err := a.ProbeVaultPath(newPath)

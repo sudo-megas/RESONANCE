@@ -108,7 +108,7 @@ desktop library RESONANCE genuinely links against.
 | **VAULT** (right pane) | The same apps as they sit in the vault. The mirror's whole point is these two panes staying identical. |
 | **Spine** (center) | **+** adds a new app to track. **→** updates a drifted app from source, dates confirmed first. Each row's **←** restores that app from the vault — previewing every new, overwritten, and already-identical file, with a real content diff, before anything writes. |
 | **Undo** | The same **←** button, once nothing's drifted: undoes the last restore. One button, everything back exactly as it was. |
-| **Status bar** | Apps tracked, how many are drifted, the active vault path, and when anything last happened — all at a glance. |
+| **Status bar** | Apps tracked, how many are drifted, and when anything last happened — all at a glance. (The vault path itself lives in the topbar, not duplicated here.) |
 
 **File dates shown throughout are modification time only, never creation time** —
 ext4/Linux has no reliable, portable way to read a file's creation date, so RESONANCE doesn't

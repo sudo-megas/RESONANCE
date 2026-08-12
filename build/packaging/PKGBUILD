@@ -7,13 +7,17 @@
 # locally: run `wails build -tags webkit2_41` from the repo root first
 # (producing build/bin/resonance), then `makepkg` from this directory.
 pkgname=resonance
-pkgver=0.5.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Dotfile syncing that is for \"users\" not developers"
 arch=('x86_64')
 url="https://github.com/sudo-megas/RESONANCE"
 license=('GPL-3.0-or-later')
 depends=('webkit2gtk-4.1' 'gtk3')
+# Wails' production build already strips symbols (-w -s); without this,
+# makepkg's stock options=(strip debug ...) split out a debug package
+# that's effectively empty and ships to every release as confusing junk.
+options=('!debug' '!strip')
 
 # No source=() array: makepkg's local-source resolution only looks up
 # bare basenames inside this directory, not arbitrary relative paths, so

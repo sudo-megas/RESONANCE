@@ -81,6 +81,9 @@ function buildDiffContent(pair: main.DiffPair): HTMLElement {
   if (pair.live.missing) {
     return fallbackNote("Live file no longer exists — nothing to compare.");
   }
+  if (pair.vault.missing) {
+    return fallbackNote("Vault copy no longer exists — nothing to compare.");
+  }
   return renderDiff(pair.live.text, pair.vault.text);
 }
 
@@ -253,14 +256,27 @@ function openUndoConfirm(row: main.AppRow, info: main.UndoInfo): void {
   openOverlay(content, { dismissable: true });
 }
 
+// restoreConfirmEpoch guards every await inside openRestoreConfirm against a
+// cross-row race: if the user closes this overlay and opens a restore
+// preview for a different row before an in-flight GetUndoInfo/GetMachineInfo
+// call resolves, that stale call must become a no-op instead of clobbering
+// whatever overlay is now actually open. Each call captures the epoch at
+// entry and re-checks it after every await; a later call bumping the epoch
+// is what marks an earlier one as superseded.
+let restoreConfirmEpoch = 0;
+
 export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
+  const epoch = ++restoreConfirmEpoch;
+
+  let undoInfo: main.UndoInfo | null = null;
+  try {
+    undoInfo = await GetUndoInfo(row.name);
+  } catch {
+    undoInfo = null;
+  }
+  if (epoch !== restoreConfirmEpoch) return;
+
   if (!row.drifted) {
-    let undoInfo: main.UndoInfo | null = null;
-    try {
-      undoInfo = await GetUndoInfo(row.name);
-    } catch {
-      undoInfo = null;
-    }
     if (undoInfo?.available) {
       openUndoConfirm(row, undoInfo);
       return;
@@ -298,6 +314,19 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   summary.className = "restore-preview-summary";
   summary.textContent = summaryLine(newFiles.length, overwriteFiles.length, skipCount);
   content.appendChild(summary);
+
+  // A crashed or partially-failed restore leaves the row drifted — exactly
+  // the state where undo used to become unreachable, since it was only ever
+  // offered when a row was fully in sync. Surfacing it here too means undo
+  // stays reachable in the one case it matters most.
+  if (undoInfo?.available) {
+    const undoLink = document.createElement("button");
+    undoLink.type = "button";
+    undoLink.className = "restore-preview-undo-link";
+    undoLink.textContent = `Undo last restore instead (${formatDateTime(undoInfo.createdAt)})`;
+    undoLink.addEventListener("click", () => openUndoConfirm(row, undoInfo!));
+    content.appendChild(undoLink);
+  }
 
   const list = document.createElement("ul");
   list.className = "restore-preview-list";
@@ -360,8 +389,10 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
 
   try {
     const info = await GetMachineInfo();
+    if (epoch !== restoreConfirmEpoch) return;
     machineCard.replaceWith(buildMachineInfoCard(info));
   } catch (err) {
+    if (epoch !== restoreConfirmEpoch) return;
     machineCard.textContent = extractErrorMessage(err);
   }
 }

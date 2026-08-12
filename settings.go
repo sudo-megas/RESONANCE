@@ -51,7 +51,8 @@ func (a *App) SaveSettings(s Settings) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
@@ -60,5 +61,5 @@ func (a *App) SaveSettings(s Settings) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return writeFileAtomic(dir, path, data, 0644)
 }

@@ -116,6 +116,12 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 	if _, err := homeRelative(vaultAbs, vaultAppDir); err != nil {
 		return DiffPair{}, err
 	}
+	// A symlink planted at vaultAbs by whoever last had write access to the
+	// vault would otherwise have its target's content silently read and
+	// shipped across the IPC boundary as this file's "vault" side.
+	if err := refuseSymlink(vaultAbs); err != nil {
+		return DiffPair{}, err
+	}
 
 	return DiffPair{
 		Live:  readFileContents(liveAbs),
@@ -258,6 +264,15 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 
 	for _, mut := range mutations {
 		if err := removeSymlinkAt(mut.destPath); err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
+			continue
+		}
+		// A symlink planted at mut.vaultFile by whoever last had write
+		// access to the vault would otherwise have its target read and
+		// copied straight onto destPath — arbitrary file disclosure into
+		// $HOME, the read-side counterpart to removeSymlinkAt's write-side
+		// protection above.
+		if err := refuseSymlink(mut.vaultFile); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
 			continue
 		}

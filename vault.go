@@ -61,6 +61,12 @@ func (a *App) PickFiles() ([]string, error) {
 // validation failure partway through must never leave some files already
 // copied onto disk with no manifest entry pointing at them.
 func (a *App) AddApp(name string, absPaths []string) error {
+	// validAppName trims before validating; trimming here too, once, up
+	// front, means the trimmed value is what actually gets compared,
+	// stored, and used to build every path below — not the untrimmed
+	// original, which would let a whitespace-padded name slip past the
+	// duplicate check below.
+	name = strings.TrimSpace(name)
 	settings := a.GetSettings()
 	if settings.VaultPath == "" {
 		return errors.New("no vault path set")
@@ -115,7 +121,7 @@ func (a *App) AddApp(name string, absPaths []string) error {
 	appDir := filepath.Join(settings.VaultPath, name)
 	for i, f := range files {
 		dst := filepath.Join(appDir, filepath.FromSlash(f.Path))
-		if err := copyFile(sources[i], dst); err != nil {
+		if err := copyFileAtomic(sources[i], dst); err != nil {
 			return err
 		}
 		size, checksum, backedUpAt, err := vaultFileMeta(dst)

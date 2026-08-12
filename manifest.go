@@ -69,7 +69,37 @@ func loadManifest(vaultPath string) (Manifest, error) {
 	if m.Apps == nil {
 		m.Apps = []ManifestApp{}
 	}
+	m.Apps = sanitizeManifestApps(m.Apps)
 	return m, nil
+}
+
+// sanitizeManifestApps drops any app entry whose Name wouldn't pass
+// validAppName, and collapses duplicate names (case-insensitive, matching
+// AddApp's own uniqueness check) to their first occurrence. This is the one
+// place that guarantee is established for every app a manifest could ever
+// contain, no matter where the manifest.json came from — a manifest loaded
+// from disk is untrusted input (a crafted or foreign manifest.json, e.g. one
+// reachable via AdoptVaultPath), and every call site downstream builds a
+// vault-side path via filepath.Join(vaultPath, app.Name, ...) trusting
+// app.Name to be a single, safe path segment. Without this, a name like
+// "../../../etc" would make that join escape the vault entirely, and a
+// duplicate name would make two different app entries silently alias the
+// same on-disk files.
+func sanitizeManifestApps(apps []ManifestApp) []ManifestApp {
+	seen := make(map[string]bool, len(apps))
+	out := make([]ManifestApp, 0, len(apps))
+	for _, app := range apps {
+		if err := validAppName(app.Name); err != nil {
+			continue
+		}
+		key := strings.ToLower(app.Name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, app)
+	}
+	return out
 }
 
 // saveManifest never creates the vault directory itself — by the time this
@@ -79,7 +109,34 @@ func saveManifest(vaultPath string, m Manifest) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(manifestPath(vaultPath), data, 0644)
+	return writeFileAtomic(vaultPath, manifestPath(vaultPath), data, 0644)
+}
+
+// writeFileAtomic writes data to path via a temp file in dir followed by a
+// rename, so a crash or kill mid-write can never leave path holding a
+// truncated or partial file — rename(2) is a single atomic step, unlike
+// os.WriteFile's open(O_TRUNC)-then-write, which has a real window where a
+// kill leaves path empty or half-written. The previous contents (or its
+// absence) stay intact right up until the fully-written replacement lands.
+func writeFileAtomic(dir, path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once the rename below succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // homeRelative converts an absolute path into one relative to home,
@@ -141,4 +198,73 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.Chmod(dst, info.Mode().Perm())
+}
+
+// copyFileAtomic copies src to dst the same way copyFile does, but lands the
+// bytes via a temp file in dst's directory followed by a rename rather than
+// truncating dst in place. Two properties fall out of that: a crash
+// mid-copy can never leave dst holding truncated/partial bytes (the old
+// content, if any, is untouched until the very last step), and if dst is
+// currently a symlink, the rename replaces the symlink itself rather than
+// following it to write through to whatever it points at — rename(2) never
+// dereferences its destination path. Used wherever dst could have been
+// planted by whoever last had write access to it (an adopted or synced
+// vault, not necessarily this machine's own session), rather than by this
+// process moments earlier.
+func copyFileAtomic(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New(src + " is not a regular file")
+	}
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(dstDir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once the rename below succeeds
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, info.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, dst)
+}
+
+// refuseSymlink errors if a symlink sits at path, without following it —
+// Lstat reports the symlink itself, unlike Stat. Used before reading file
+// content from a path that could have been planted by whoever last had
+// write access to it: opening straight through such a symlink would
+// silently disclose whatever it points at, including files far outside the
+// vault entirely. A path with nothing there yet, or a real file, passes
+// through unchanged — the Stat/Open that follows reports whatever error is
+// actually appropriate.
+func refuseSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New(path + " is a symlink — refusing to read through it")
+	}
+	return nil
 }
