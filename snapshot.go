@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const snapshotFileName = "snapshot.json"
@@ -43,20 +45,33 @@ type UndoResult struct {
 	Failed   []RestoreFailure `json:"failed"`
 }
 
-// undoRootDir is the per-machine state directory undo snapshots live
-// under. Go's stdlib has no os.UserStateDir() (unlike UserConfigDir /
-// UserCacheDir), so this follows the same XDG fallback convention by
-// hand. Not ~/.cache — a cache is safe to lose, and these bytes exist
-// nowhere else once a restore has run.
-func undoRootDir() (string, error) {
+// resonanceStateDir is the per-machine state directory RESONANCE's own
+// on-disk state (undo snapshots, the activity log) lives under. Go's
+// stdlib has no os.UserStateDir() (unlike UserConfigDir / UserCacheDir),
+// so this follows the same XDG fallback convention by hand. Not
+// ~/.cache — a cache is safe to lose, and undo snapshots exist nowhere
+// else once a restore has run.
+func resonanceStateDir() (string, error) {
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
-		return filepath.Join(xdg, "resonance", "undo"), nil
+		return filepath.Join(xdg, "resonance"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "resonance", "undo"), nil
+	return filepath.Join(home, ".local", "state", "resonance"), nil
+}
+
+// undoRootDir is where undo snapshots live, one subdirectory below
+// resonanceStateDir() — kept separate so undo's directory-per-app layout
+// can never collide with the activity log or any future state stored
+// alongside it.
+func undoRootDir() (string, error) {
+	dir, err := resonanceStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "undo"), nil
 }
 
 // captureEntry records destPath's current state into pendingDir before
@@ -241,5 +256,23 @@ func (a *App) UndoRestore(appName string) (UndoResult, error) {
 		_ = os.RemoveAll(canonicalDir)
 	}
 
+	recordActivity("undo", appName, summarizeUndoActivity(result))
 	return result, nil
+}
+
+// summarizeUndoActivity turns UndoResult's counts into a short
+// human-readable description for the activity log, e.g. "3 restored, 1
+// failed". Counts of zero are omitted entirely.
+func summarizeUndoActivity(result UndoResult) string {
+	var parts []string
+	if n := len(result.Restored); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d restored", n))
+	}
+	if n := len(result.Failed); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", n))
+	}
+	if len(parts) == 0 {
+		return "no changes"
+	}
+	return strings.Join(parts, ", ")
 }

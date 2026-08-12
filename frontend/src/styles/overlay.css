@@ -17,7 +17,8 @@
 }
 .overlay-panel {
   position: relative;
-  max-width: min(560px, calc(100vw - 48px));
+  min-width: min(340px, calc(100vw - 48px));
+  max-width: min(660px, calc(100vw - 48px));
   max-height: calc(100vh - 96px);
   overflow-y: auto;
   padding: 28px;
@@ -33,6 +34,10 @@
 }
 .overlay-heading {
   margin: 0 0 20px;
+  /* Reserve room for the absolutely-positioned .overlay-close sitting at
+     top:16/right:16 (28px wide) so a short panel never lets its heading
+     text run under the close button. */
+  padding-right: 32px;
   font-size: 16px;
   font-weight: 600;
 }
@@ -56,10 +61,12 @@
   border-color: var(--border-strong);
 }
 
-/* Theme picker */
+/* Theme picker — a fixed 4-column grid (instead of auto-fit, which was
+   only ever landing 2 columns at the panel's old max-width) so all 11
+   themes fit in 3 short rows instead of a long single-scroll list. */
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
 .theme-card {
@@ -99,16 +106,12 @@
   text-align: center;
   gap: 4px;
 }
-.logo-mark--about {
-  width: 44px;
-  height: 44px;
-  margin-bottom: 10px;
-}
-.about-name {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+.about-mark {
+  display: inline-block;
+  width: 220px;
+  height: 220px;
+  margin-bottom: 4px;
+  background: url("../assets/logo-full.png") center / contain no-repeat;
 }
 .about-tagline {
   margin: 4px 0 20px;
@@ -424,6 +427,52 @@
 .update-confirm-cancel-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Recent Activity — persistent log popup. Own classes (not reusing
+   .update-confirm-*) so the two features stay independently stylable. */
+.activity-filelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.activity-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  transform: translateX(-0.1685em);
+}
+.activity-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+.activity-date {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.activity-empty {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  list-style: none;
 }
 
 /* Restore preview — the first overlay that writes onto the live system.

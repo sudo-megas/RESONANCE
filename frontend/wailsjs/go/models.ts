@@ -1,5 +1,23 @@
 export namespace main {
 	
+	export class ActivityEntry {
+	    kind: string;
+	    appName: string;
+	    summary: string;
+	    timestamp: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActivityEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.appName = source["appName"];
+	        this.summary = source["summary"];
+	        this.timestamp = source["timestamp"];
+	    }
+	}
 	export class FileRow {
 	    path: string;
 	    state: string;

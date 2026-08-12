@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -249,6 +251,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			for _, mut := range mutations {
 				result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
 			}
+			recordActivity("restore", name, summarizeRestoreActivity(result))
 			return result, nil
 		}
 	}
@@ -270,7 +273,31 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		}
 	}
 
+	recordActivity("restore", name, summarizeRestoreActivity(result))
 	return result, nil
+}
+
+// summarizeRestoreActivity turns RestoreResult's counts into a short
+// human-readable description for the activity log, e.g. "2 new, 1
+// overwritten, 1 failed". Counts of zero are omitted entirely.
+func summarizeRestoreActivity(result RestoreResult) string {
+	var parts []string
+	if n := len(result.New); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d new", n))
+	}
+	if n := len(result.Overwritten); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d overwritten", n))
+	}
+	if n := len(result.Skipped); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped", n))
+	}
+	if n := len(result.Failed); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", n))
+	}
+	if len(parts) == 0 {
+		return "no changes"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // removeSymlinkAt clears a symlink standing at path — including a broken

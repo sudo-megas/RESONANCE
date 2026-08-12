@@ -15,20 +15,26 @@
         <div class="topbar-actions">
             <div class="vault-control">
                 <span class="vault-path-display" id="vault-path-display" title=""></span>
-                <button class="text-btn" id="vault-path-btn" type="button">Change Path</button>
+                <button class="text-btn" id="vault-path-btn" type="button"><span class="btn-icon" aria-hidden="true">&#xf07c;</span> Change Path</button>
             </div>
-            <button class="icon-btn" id="theme-btn" type="button" aria-label="Change theme">&#xf042;</button>
-            <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE">&#xf059;</button>
+            <button class="icon-btn" id="theme-btn" type="button" aria-label="Change theme"><span class="icon-glyph" aria-hidden="true">&#xf042;</span></button>
+            <button class="icon-btn" id="about-btn" type="button" aria-label="About RESONANCE"><span class="icon-glyph" aria-hidden="true">&#xf059;</span></button>
+            <button class="icon-btn" id="activity-btn" type="button" aria-label="Recent activity"><span class="icon-glyph" aria-hidden="true">&#xf1da;</span></button>
         </div>
     </header>
     <main class="mirror" aria-label="Mirror">
+        <div class="mirror-backdrop">
+            <div class="mirror-backdrop-card mirror-backdrop-system"></div>
+            <div class="mirror-backdrop-card mirror-backdrop-spine"></div>
+            <div class="mirror-backdrop-card mirror-backdrop-vault"></div>
+        </div>
         <div class="mirror-rows" id="mirror-rows">
             <div class="mirror-header-cell mirror-header-system">
                 <h2 class="pane-label">SYSTEM</h2>
             </div>
             <div class="mirror-header-cell mirror-header-spine">
-                <button class="spine-add-btn" id="add-app-btn" type="button" aria-label="Add app">&#xf067;</button>
-                <button class="spine-update-all-btn" id="update-all-btn" type="button" aria-label="Update all from source">&#x2192;</button>
+                <button class="spine-add-btn" id="add-app-btn" type="button" aria-label="Add app"><span class="icon-glyph" aria-hidden="true">&#xf067;</span></button>
+                <button class="spine-update-all-btn" id="update-all-btn" type="button" aria-label="Update all from source"><span class="icon-glyph" aria-hidden="true">&#xf021;</span></button>
             </div>
             <div class="mirror-header-cell mirror-header-vault">
                 <h2 class="pane-label">VAULT</h2>

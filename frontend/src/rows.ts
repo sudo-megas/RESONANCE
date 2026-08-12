@@ -94,7 +94,11 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   restoreBtn.type = "button";
   restoreBtn.className = "spine-restore-btn";
   restoreBtn.setAttribute("aria-label", `Restore ${row.name} from vault`);
-  restoreBtn.textContent = "←";
+  const restoreIcon = document.createElement("span");
+  restoreIcon.className = "icon-glyph";
+  restoreIcon.setAttribute("aria-hidden", "true");
+  restoreIcon.textContent = "\uf019";
+  restoreBtn.appendChild(restoreIcon);
   restoreBtn.addEventListener("click", () => openRestoreConfirm(row));
   spine.appendChild(restoreBtn);
 
@@ -105,7 +109,11 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   updateBtn.type = "button";
   updateBtn.className = "spine-update-btn";
   updateBtn.setAttribute("aria-label", `Update ${row.name} from source`);
-  updateBtn.textContent = "→";
+  const updateIcon = document.createElement("span");
+  updateIcon.className = "icon-glyph";
+  updateIcon.setAttribute("aria-hidden", "true");
+  updateIcon.textContent = "\uf093";
+  updateBtn.appendChild(updateIcon);
   updateBtn.addEventListener("click", () => openUpdateConfirm(row));
   spine.appendChild(updateBtn);
 

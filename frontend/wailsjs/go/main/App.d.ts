@@ -18,6 +18,8 @@ export function GetMachineInfo():Promise<main.MachineInfo>;
 
 export function GetMirrorRows():Promise<Array<main.AppRow>>;
 
+export function GetRecentActivity():Promise<Array<main.ActivityEntry>>;
+
 export function GetSettings():Promise<main.Settings>;
 
 export function GetUndoInfo(arg1:string):Promise<main.UndoInfo>;

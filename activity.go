@@ -1,0 +1,109 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+const activityFileName = "activity.json"
+const maxActivityEntries = 10
+
+// ActivityEntry records one completed add/update/restore/undo operation for
+// the recent-activity popup.
+type ActivityEntry struct {
+	Kind      string `json:"kind"` // "add" | "update" | "restore" | "undo"
+	AppName   string `json:"appName"`
+	Summary   string `json:"summary"`   // precomputed human-readable description
+	Timestamp string `json:"timestamp"` // RFC3339 UTC
+}
+
+// ActivityLog is the on-disk shape of activityLogPath()'s file, oldest
+// entry first — GetRecentActivity reverses this for display.
+type ActivityLog struct {
+	Entries []ActivityEntry `json:"entries"`
+}
+
+// activityLogPath is resonanceStateDir()/activity.json — sibling to
+// undoRootDir(), both built on the same shared XDG resolution.
+func activityLogPath() (string, error) {
+	dir, err := resonanceStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, activityFileName), nil
+}
+
+// loadActivityLog mirrors readSnapshot's philosophy: any failure (missing,
+// corrupt, unreadable) reads as an empty log, never a crash. Entries is
+// always normalized to non-nil (matches UpdateResult's established "nil
+// slice marshals to JSON null" convention) so GetRecentActivity never hands
+// the frontend a null that breaks entries.length.
+func loadActivityLog() ActivityLog {
+	empty := ActivityLog{Entries: []ActivityEntry{}}
+
+	path, err := activityLogPath()
+	if err != nil {
+		return empty
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return empty
+	}
+	var log ActivityLog
+	if err := json.Unmarshal(data, &log); err != nil {
+		return empty
+	}
+	if log.Entries == nil {
+		log.Entries = []ActivityEntry{}
+	}
+	return log
+}
+
+// saveActivityLog writes the log with a plain os.WriteFile at 0644 —
+// matches saveManifest's existing simplicity, not snapshot.go's
+// atomic-rename pattern: there's no crash-safety requirement for this
+// feature, so the extra machinery would be over-engineering. MkdirAll
+// covers the one-time case where resonanceStateDir() doesn't exist yet.
+func saveActivityLog(log ActivityLog) error {
+	path, err := activityLogPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(log, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// recordActivity appends one entry, capped at maxActivityEntries (oldest
+// dropped from the front). Best-effort by design: a logging failure must
+// never fail the primary operation it's recording — no return value.
+func recordActivity(kind, appName, summary string) {
+	log := loadActivityLog()
+	log.Entries = append(log.Entries, ActivityEntry{
+		Kind:      kind,
+		AppName:   appName,
+		Summary:   summary,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+	if len(log.Entries) > maxActivityEntries {
+		log.Entries = log.Entries[len(log.Entries)-maxActivityEntries:]
+	}
+	_ = saveActivityLog(log)
+}
+
+// GetRecentActivity returns the persisted log, newest first.
+func (a *App) GetRecentActivity() ([]ActivityEntry, error) {
+	log := loadActivityLog()
+	entries := make([]ActivityEntry, len(log.Entries))
+	for i, e := range log.Entries {
+		entries[len(entries)-1-i] = e
+	}
+	return entries, nil
+}

@@ -23,14 +23,10 @@ export function openAbout(): void {
   content.appendChild(closeBtn);
 
   const mark = document.createElement("span");
-  mark.className = "logo-mark logo-mark--about";
-  mark.setAttribute("aria-hidden", "true");
+  mark.className = "about-mark";
+  mark.setAttribute("role", "img");
+  mark.setAttribute("aria-label", "RESONANCE");
   content.appendChild(mark);
-
-  const name = document.createElement("h2");
-  name.className = "about-name";
-  name.textContent = "RESONANCE";
-  content.appendChild(name);
 
   const tagline = document.createElement("p");
   tagline.className = "about-tagline";
