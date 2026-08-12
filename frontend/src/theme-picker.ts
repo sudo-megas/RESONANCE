@@ -1,5 +1,6 @@
 import { GetSettings, SaveSettings } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
+import { showToast } from "./toast";
 
 export interface ThemeDef {
   id: string;
@@ -44,6 +45,7 @@ async function selectTheme(id: string): Promise<void> {
     await SaveSettings({ ...current, theme: id });
   } catch (err) {
     console.error(err);
+    showToast("Couldn't save your theme choice — it may reset next launch");
   }
 }
 
