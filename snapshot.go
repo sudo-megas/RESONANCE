@@ -160,18 +160,41 @@ func removeAnythingAt(path string) error {
 // A rename is a single atomic step either way, so the old snapshot is
 // never in a half-deleted state — worst case after a crash, a harmless
 // ".stale" directory is left for the next commitSnapshot call to clean up.
+//
+// That cleanup is a recovery, not a blind delete: a crash landing between
+// the two renames below leaves canonicalDir gone and staleDir holding the
+// only surviving copy of the *previous* snapshot, with nothing in between
+// GetUndoInfo/readSnapshot to find. The next commitSnapshot call restores
+// staleDir to canonicalDir first, before doing anything else, so that
+// snapshot is reinstated rather than silently deleted the moment this
+// function's cleanup would otherwise have run again. The same recovery
+// covers a failed final rename: if pendingDir can't be renamed onto
+// canonicalDir, the old snapshot is moved back into place so a valid
+// snapshot stays reachable instead of disappearing.
 func commitSnapshot(pendingDir, canonicalDir string, snap RestoreSnapshot) error {
 	if err := writeSnapshot(pendingDir, snap); err != nil {
 		return err
 	}
 	staleDir := canonicalDir + ".stale"
-	_ = os.RemoveAll(staleDir)
+
+	if _, err := os.Stat(canonicalDir); err != nil {
+		if _, staleErr := os.Stat(staleDir); staleErr == nil {
+			if err := os.Rename(staleDir, canonicalDir); err != nil {
+				return err
+			}
+		}
+	}
+
 	if _, err := os.Stat(canonicalDir); err == nil {
+		_ = os.RemoveAll(staleDir)
 		if err := os.Rename(canonicalDir, staleDir); err != nil {
 			return err
 		}
 	}
 	if err := os.Rename(pendingDir, canonicalDir); err != nil {
+		if _, statErr := os.Stat(staleDir); statErr == nil {
+			_ = os.Rename(staleDir, canonicalDir)
+		}
 		return err
 	}
 	_ = os.RemoveAll(staleDir)

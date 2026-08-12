@@ -174,6 +174,44 @@ func TestCommitSnapshot_OldSnapshotSurvivesWriteFailure(t *testing.T) {
 	}
 }
 
+// TestCommitSnapshot_RecoversStaleSnapshotInsteadOfDiscardingIt models the
+// state a crash between commitSnapshot's two renames leaves behind: the
+// previous snapshot survives under canonicalDir+".stale" (a real rename
+// already completed it there) while canonicalDir itself is gone. The old
+// code unconditionally os.RemoveAll'd that ".stale" directory the moment
+// the next commitSnapshot call started, before checking whether canonicalDir
+// even existed — silently destroying a still-valid previous snapshot rather
+// than reinstating it. The fix promotes it back to canonicalDir first, so
+// it's carried forward as the thing the new commit legitimately supersedes,
+// never as something deleted out from under a still-recoverable state.
+func TestCommitSnapshot_RecoversStaleSnapshotInsteadOfDiscardingIt(t *testing.T) {
+	root := t.TempDir()
+	canonicalDir := filepath.Join(root, "app")
+	pendingDir := filepath.Join(root, "app.pending")
+	staleDir := canonicalDir + ".stale"
+
+	oldSnap := RestoreSnapshot{App: "app", CreatedAt: "2020-01-01T00:00:00Z", Entries: []SnapshotEntry{{Path: "old", Kind: "absent"}}}
+	if err := writeSnapshot(staleDir, oldSnap); err != nil {
+		t.Fatal(err)
+	}
+
+	newSnap := RestoreSnapshot{App: "app", CreatedAt: "2020-02-02T00:00:00Z", Entries: []SnapshotEntry{{Path: "new", Kind: "absent"}}}
+	if err := commitSnapshot(pendingDir, canonicalDir, newSnap); err != nil {
+		t.Fatalf("commitSnapshot: %v", err)
+	}
+
+	got, ok := readSnapshot(canonicalDir)
+	if !ok || got.CreatedAt != newSnap.CreatedAt {
+		t.Fatalf("expected the new snapshot at canonicalDir, got %+v ok=%v", got, ok)
+	}
+	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
+		t.Fatalf("staleDir should be cleaned up after a successful commit, stat err = %v", err)
+	}
+	if _, err := os.Stat(pendingDir); !os.IsNotExist(err) {
+		t.Fatalf("pendingDir should have been renamed away, stat err = %v", err)
+	}
+}
+
 func TestReadSnapshot_MissingOrCorrupt(t *testing.T) {
 	if _, ok := readSnapshot(filepath.Join(t.TempDir(), "nope")); ok {
 		t.Fatal("expected ok=false for a directory with no snapshot.json")
