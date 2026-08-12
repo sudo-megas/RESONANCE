@@ -28,6 +28,15 @@ function handleKeydown(e: KeyboardEvent): void {
 }
 
 export function openOverlay(content: HTMLElement, opts?: OverlayOptions): OverlayHandle {
+  // A non-dismissable overlay (e.g. the mandatory first-launch vault
+  // prompt) can only be closed by its own content calling closeOverlay()
+  // explicitly — it must not be silently torn down just because something
+  // else tried to open over it (e.g. a stray Tab+Enter reaching another
+  // button before a choice is made).
+  if (active && !active.dismissable) {
+    return { close: () => {} };
+  }
+
   closeOverlay();
 
   const root = document.getElementById("overlay-root")!;

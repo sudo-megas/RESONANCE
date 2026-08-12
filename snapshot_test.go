@@ -388,6 +388,121 @@ func TestUndoRestore_RoundTripsAllKinds(t *testing.T) {
 	}
 }
 
+func TestRestoreApp_DoesNotMutateLiveFilesWhenCommitFails(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+	const appName = "testapp"
+
+	// A manifest entry whose relative path is itself "snapshot.json/nested"
+	// makes captureEntry's copyFile MkdirAll a *directory* at
+	// <pendingDir>/snapshot.json. The later writeSnapshot call then tries
+	// to create a plain file at that exact path and fails -- forcing
+	// commitSnapshot to fail from within a real RestoreApp run, without
+	// reaching into its internals.
+	sabotage := seedVaultFile(t, vault, appName, "snapshot.json/nested", "vault-sabotage")
+	plain := seedVaultFile(t, vault, appName, ".plain-file", "vault-plain")
+	saveTestManifest(t, vault, appName, []ManifestFile{sabotage, plain})
+
+	sabotageDest := filepath.Join(home, "snapshot.json", "nested")
+	if err := os.MkdirAll(filepath.Dir(sabotageDest), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sabotageDest, []byte("old-sabotage-live"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plainDest := filepath.Join(home, ".plain-file")
+	if err := os.WriteFile(plainDest, []byte("old-live-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := a.RestoreApp(appName)
+	if err != nil {
+		t.Fatalf("RestoreApp: %v", err)
+	}
+	if len(result.New) != 0 || len(result.Overwritten) != 0 {
+		t.Fatalf("no file should be mutated when the snapshot commit fails, got %+v", result)
+	}
+	if len(result.Failed) != 2 {
+		t.Fatalf("expected both files reported failed, got %+v", result.Failed)
+	}
+
+	if got, err := os.ReadFile(sabotageDest); err != nil || string(got) != "old-sabotage-live" {
+		t.Fatalf("snapshot.json/nested was mutated despite the commit failing: got %q, err %v", got, err)
+	}
+	if got, err := os.ReadFile(plainDest); err != nil || string(got) != "old-live-content" {
+		t.Fatalf(".plain-file was mutated despite the commit failing: got %q, err %v", got, err)
+	}
+
+	info, err := a.GetUndoInfo(appName)
+	if err != nil {
+		t.Fatalf("GetUndoInfo: %v", err)
+	}
+	if info.Available {
+		t.Fatalf("no snapshot should have been committed, got %+v", info)
+	}
+}
+
+func TestUndoRestore_RegularEntryClearsSymlinkFirst(t *testing.T) {
+	a, home, _ := newRestoreFixture(t)
+	const appName = "testapp"
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDir := filepath.Join(root, appName)
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(canonicalDir, ".file"), []byte("captured-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Between the restore that produced this snapshot and the undo, .file
+	// at destPath was replaced by a symlink -- e.g. a dotfile manager
+	// re-ran and re-linked it. It now points outside $HOME entirely.
+	outside := filepath.Join(t.TempDir(), "canary.txt")
+	if err := os.WriteFile(outside, []byte("must-not-be-touched"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	destPath := filepath.Join(home, ".file")
+	if err := os.Symlink(outside, destPath); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := RestoreSnapshot{
+		App:       appName,
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries:   []SnapshotEntry{{Path: ".file", Kind: "regular"}},
+	}
+	if err := writeSnapshot(canonicalDir, snap); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := a.UndoRestore(appName)
+	if err != nil {
+		t.Fatalf("UndoRestore: %v", err)
+	}
+	if len(result.Failed) != 0 || len(result.Restored) != 1 {
+		t.Fatalf("UndoRestore = %+v", result)
+	}
+
+	// destPath must now be a real regular file holding the captured
+	// content -- not a write-through that landed in the symlink's target.
+	info, err := os.Lstat(destPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf(".file should be a regular file after undo, mode=%v err=%v", info.Mode(), err)
+	}
+	got, err := os.ReadFile(destPath)
+	if err != nil || string(got) != "captured-content" {
+		t.Fatalf(".file = %q, err %v", got, err)
+	}
+
+	canary, err := os.ReadFile(outside)
+	if err != nil || string(canary) != "must-not-be-touched" {
+		t.Fatalf("the symlink's target outside $HOME was written through: got %q, err %v", canary, err)
+	}
+}
+
 func TestUndoRestore_RevalidatesPathsAndLeavesPartialFailureInPlace(t *testing.T) {
 	a, home, _ := newRestoreFixture(t)
 	const appName = "testapp"

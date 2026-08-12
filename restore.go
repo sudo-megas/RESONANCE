@@ -135,9 +135,11 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 //
 // Before any file is mutated, its current state is captured into a
 // pending undo directory (never the canonical one — see the commit step
-// below). Capture failure is fail-closed: that file is skipped, same as
-// any other per-file failure, so a file is never mutated without its
-// prior state safely tucked aside first.
+// below), and that whole snapshot is committed to canonical storage
+// before any file is actually written to the live system. Capture
+// failure is fail-closed: that file is skipped, same as any other
+// per-file failure, so a file is never mutated without its prior state
+// safely committed first.
 func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	result := RestoreResult{New: []string{}, Overwritten: []string{}, Skipped: []string{}, Failed: []RestoreFailure{}}
 
@@ -177,7 +179,18 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	// clearing stale scratch space, never data anyone still needs.
 	_ = os.RemoveAll(pendingUndoDir)
 
+	// pendingMutation is a file that survived capture and is queued to be
+	// written to the live system — but only after the snapshot covering
+	// it has been durably committed (see below).
+	type pendingMutation struct {
+		path       string
+		destPath   string
+		vaultFile  string
+		wasMissing bool
+	}
+
 	var entries []SnapshotEntry
+	var mutations []pendingMutation
 
 	app := m.Apps[appIndex]
 	for _, f := range app.Files {
@@ -198,45 +211,63 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
 			continue
 		}
-		// Recorded as soon as capture succeeds, before the mutation below
-		// is attempted — if removeSymlinkAt or copyFile then fails
-		// partway, destPath may already have been altered, so its prior
-		// state still belongs in the snapshot even though this file also
-		// lands in Failed.
 		entries = append(entries, entry)
 
 		vaultFile := filepath.Join(settings.VaultPath, app.Name, filepath.FromSlash(f.Path))
-
-		if err := removeSymlinkAt(destPath); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
-			continue
-		}
-		if err := copyFile(vaultFile, destPath); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
-			continue
-		}
-
-		if row.State == "missing" {
-			result.New = append(result.New, f.Path)
-		} else {
-			result.Overwritten = append(result.Overwritten, f.Path)
-		}
+		mutations = append(mutations, pendingMutation{
+			path:       f.Path,
+			destPath:   destPath,
+			vaultFile:  vaultFile,
+			wasMissing: row.State == "missing",
+		})
 	}
 
-	// Stage-then-commit: only touch the canonical snapshot once the new
-	// one has fully succeeded. A fully no-op restore (nothing captured)
-	// leaves any existing snapshot exactly as it was — that's what makes
-	// retention "keep 1 per app" without a separate prune step. If
-	// writeSnapshot itself fails, pendingUndoDir is simply abandoned and
-	// the old canonical snapshot survives untouched; worst case this run's
-	// undo capability is lost, never "undo replays wrong bytes."
+	// Stage-then-commit: the snapshot covering every file queued above is
+	// committed to canonical storage BEFORE any of those files are
+	// touched on the live system — not after, as a first pass of this
+	// function once did. Committing after mutation left a window where a
+	// crash or commit failure between the two could leave a stale,
+	// still-"available" snapshot silently reporting success while undo
+	// would replay the wrong (older) bytes over the newly-restored ones.
+	// Committing first means: no live file is ever mutated without its
+	// prior state already safely in place as the thing undo will restore.
+	//
+	// A fully no-op restore (nothing captured) never touches an existing
+	// snapshot — that's what makes retention "keep 1 per app" without a
+	// separate prune step.
 	if len(entries) > 0 {
 		snap := RestoreSnapshot{
 			App:       name,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			Entries:   entries,
 		}
-		_ = commitSnapshot(pendingUndoDir, canonicalUndoDir, snap)
+		if err := commitSnapshot(pendingUndoDir, canonicalUndoDir, snap); err != nil {
+			// The prior state couldn't be durably saved, so none of these
+			// files are mutated at all — an incomplete restore is safe to
+			// re-run; a live mutation with no committed snapshot behind
+			// it is not.
+			for _, mut := range mutations {
+				result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
+			}
+			return result, nil
+		}
+	}
+
+	for _, mut := range mutations {
+		if err := removeSymlinkAt(mut.destPath); err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
+			continue
+		}
+		if err := copyFile(mut.vaultFile, mut.destPath); err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
+			continue
+		}
+
+		if mut.wasMissing {
+			result.New = append(result.New, mut.path)
+		} else {
+			result.Overwritten = append(result.Overwritten, mut.path)
+		}
 	}
 
 	return result, nil
