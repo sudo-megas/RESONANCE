@@ -1,5 +1,5 @@
 <p align="center" width="100%">
-    <img width="33%" src="build/icons/256.png">
+    <img width="33%" src="build/icons/512.png">
 </p>
 
 <h1 align="center">RESONANCE</h1>
