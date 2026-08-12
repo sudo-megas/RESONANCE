@@ -52,6 +52,9 @@ func backfillChecksums(vaultPath string, m *Manifest) bool {
 				continue
 			}
 			vaultFile := filepath.Join(vaultPath, m.Apps[ai].Name, filepath.FromSlash(f.Path))
+			if err := refuseSymlink(vaultFile); err != nil {
+				continue
+			}
 			size, checksum, backedUpAt, err := vaultFileMeta(vaultFile)
 			if err != nil {
 				continue
@@ -75,9 +78,16 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 	if settings.VaultPath == "" {
 		return []AppRow{}, nil
 	}
+	// loadManifest's error distinguishes a genuinely fresh/empty vault
+	// (nil error, empty Apps) from a vault that can't be read right now —
+	// unplugged drive, stale saved path, corrupt manifest.json. Swallowing
+	// that error here used to render both cases identically as "nothing
+	// tracked yet," which silently hid a disconnected vault behind what
+	// looked like a healthy, empty one. Propagating it lets the frontend
+	// tell the difference and say so.
 	m, err := loadManifest(settings.VaultPath)
 	if err != nil {
-		return []AppRow{}, nil
+		return nil, err
 	}
 	if backfillChecksums(settings.VaultPath, &m) {
 		_ = saveManifest(settings.VaultPath, m)
@@ -85,7 +95,7 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return []AppRow{}, nil
+		return nil, err
 	}
 
 	rows := make([]AppRow, 0, len(m.Apps))
@@ -204,7 +214,7 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 			}
 		}
 
-		if err := copyFile(sourcePath, vaultFile); err != nil {
+		if err := copyFileAtomic(sourcePath, vaultFile); err != nil {
 			return result, err
 		}
 		size, checksum, backedUpAt, err := vaultFileMeta(vaultFile)
