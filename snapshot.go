@@ -138,14 +138,29 @@ func removeAnythingAt(path string) error {
 // left completely untouched — the crash-safety property this whole design
 // exists for: a disk-full write here can never destroy a still-valid old
 // snapshot.
+//
+// The old canonicalDir is moved aside rather than os.RemoveAll'd in place:
+// RemoveAll walks and deletes the tree file by file, so a crash partway
+// through can corrupt the old snapshot before the new one has replaced it.
+// A rename is a single atomic step either way, so the old snapshot is
+// never in a half-deleted state — worst case after a crash, a harmless
+// ".stale" directory is left for the next commitSnapshot call to clean up.
 func commitSnapshot(pendingDir, canonicalDir string, snap RestoreSnapshot) error {
 	if err := writeSnapshot(pendingDir, snap); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(canonicalDir); err != nil {
+	staleDir := canonicalDir + ".stale"
+	_ = os.RemoveAll(staleDir)
+	if _, err := os.Stat(canonicalDir); err == nil {
+		if err := os.Rename(canonicalDir, staleDir); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(pendingDir, canonicalDir); err != nil {
 		return err
 	}
-	return os.Rename(pendingDir, canonicalDir)
+	_ = os.RemoveAll(staleDir)
+	return nil
 }
 
 // GetUndoInfo reports whether appName has a pending undo snapshot, for the
@@ -205,7 +220,11 @@ func (a *App) UndoRestore(appName string) (UndoResult, error) {
 				restoreErr = os.Symlink(entry.LinkTarget, destPath)
 			}
 		case "regular":
-			restoreErr = copyFile(filepath.Join(canonicalDir, filepath.FromSlash(entry.Path)), destPath)
+			if err := removeAnythingAt(destPath); err != nil {
+				restoreErr = err
+			} else {
+				restoreErr = copyFile(filepath.Join(canonicalDir, filepath.FromSlash(entry.Path)), destPath)
+			}
 		default:
 			restoreErr = errors.New("unknown snapshot entry kind: " + entry.Kind)
 		}

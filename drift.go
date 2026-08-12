@@ -112,6 +112,10 @@ func fileDriftRow(home string, f ManifestFile) FileRow {
 	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt}
 
 	sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
+	if _, err := homeRelative(sourcePath, home); err != nil {
+		fr.State = "missing"
+		return fr
+	}
 	info, err := os.Stat(sourcePath)
 	if err != nil {
 		fr.State = "missing"
@@ -173,7 +177,17 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	for i := range app.Files {
 		f := &app.Files[i]
 		sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
-		vaultFile := filepath.Join(settings.VaultPath, app.Name, filepath.FromSlash(f.Path))
+		vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+
+		if _, err := homeRelative(sourcePath, home); err != nil {
+			result.Missing = append(result.Missing, f.Path)
+			continue
+		}
+		if _, err := homeRelative(vaultFile, vaultAppDir); err != nil {
+			result.Missing = append(result.Missing, f.Path)
+			continue
+		}
 
 		srcInfo, err := os.Stat(sourcePath)
 		if err != nil || !srcInfo.Mode().IsRegular() {
