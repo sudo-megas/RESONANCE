@@ -117,7 +117,11 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            # Arch's pkgver may not contain colons, forward slashes,
+            # hyphens or whitespace -- unlike the .deb job's version
+            # string, this one goes straight into a sed substitution
+            # of PKGBUILD's pkgver= line, so it must be valid on its own.
+            echo "value=0.0.0dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Arch package
@@ -129,9 +133,14 @@ jobs:
           # a throwaway build user is the standard workaround, and since
           # this PKGBUILD only packages an already-built binary (no
           # --syncdeps, nothing to compile), it needs no sudo access.
+          # --nodeps skips makepkg's runtime-dependency check against the
+          # pacman database: depends=() here describes what the *installed*
+          # package needs on an end user's machine, not this build
+          # container, whose pacman database was never synced and has
+          # neither webkit2gtk nor gtk3 installed.
           useradd -m builder
           chown -R builder:builder build/
-          su builder -c "cd build/packaging && makepkg --noconfirm"
+          su builder -c "cd build/packaging && makepkg --noconfirm --nodeps"
           mv build/packaging/*.pkg.tar.zst .
 
       - name: Upload Arch package artifact
