@@ -186,11 +186,26 @@ export function openChangePath(): void {
             moveBtn.disabled = false;
             copyBtn.textContent = "Copy";
             moveBtn.textContent = "Move";
+            moveArmed = false;
           }
         }
 
         copyBtn.addEventListener("click", () => runMigration(CopyVaultTo, copyBtn));
-        moveBtn.addEventListener("click", () => runMigration(MoveVaultTo, moveBtn));
+
+        // Move permanently deletes everything at the old vault path once
+        // the copy is verified — unlike Copy, which never removes anything.
+        // A first click only arms it and explains the consequence; the
+        // actual migration only runs on the second, explicit confirmation.
+        let moveArmed = false;
+        moveBtn.addEventListener("click", () => {
+          if (!moveArmed) {
+            moveArmed = true;
+            moveBtn.textContent = "Confirm Move (deletes old vault)";
+            status.textContent = `This will copy your vault to the new location, then permanently delete everything at ${current.vaultPath}.`;
+            return;
+          }
+          runMigration(MoveVaultTo, moveBtn);
+        });
 
         decisionArea.appendChild(msg);
         decisionArea.appendChild(copyBtn);
