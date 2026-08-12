@@ -4,6 +4,8 @@ import { formatDate, formatLastUpdated } from "./dates";
 import { openUpdateConfirm } from "./update";
 import { openRestoreConfirm } from "./restore";
 import { refreshStatusbar } from "./statusbar";
+import { showToast } from "./toast";
+import { extractErrorMessage } from "./util";
 
 // Single source of truth for the mirror's data. Expand/collapse is a pure
 // client-side toggle against this cache — every file's drift state was
@@ -19,7 +21,11 @@ export async function refreshMirror(): Promise<void> {
     renderRows(rows);
     await refreshStatusbar(rows);
   } catch (err) {
+    // GetMirrorRows now reports a real error for an unreachable vault
+    // (unplugged drive, corrupt manifest) instead of silently rendering it
+    // the same as a genuinely empty one — surface it, don't just log it.
     console.error(err);
+    showToast(extractErrorMessage(err));
   }
 }
 
