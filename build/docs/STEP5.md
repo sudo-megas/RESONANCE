@@ -445,10 +445,10 @@ maker-initiated actions using the pipeline this STEP built.
       `npm install`
 - [x] `release` job's tag logic is reviewable in isolation:
       `--prerelease` for every tag except exactly `v1.0.0`
-- [ ] `workflow_dispatch` dry-run succeeds on real GitHub Actions
-      infrastructure — not yet run; requires the one approved early
-      push (§0/§4), which is a separate action after this checklist and
-      the commit itself
+- [x] `workflow_dispatch` dry-run succeeds on real GitHub Actions
+      infrastructure — run for real once the maker began the actual
+      release process (see the addendum below); `build`, `package-deb`,
+      and `package-arch` all pass and `release` correctly no-ops
 - [x] No push, tag, or `gh release create` for the real v1.0.0 happens
       as part of this STEP's work
 - [x] README.md gets one explicit line on the creation-dates limitation
@@ -456,6 +456,47 @@ maker-initiated actions using the pipeline this STEP built.
 - [x] Committed locally, no AI trailers — the one approved early push
       (§4) is `master` only, for the dry-run; nothing else pushes or
       tags
+
+## 6.5. ADDENDUM — the real release, 2026-08-12
+
+Everything above was written and checked off before any of this STEP's
+work reached `master`. The maker started the actual release process the
+same day: `master` fast-forwarded to this STEP's work, the
+`workflow_dispatch` dry run finally run for real, and `v0.2.0` through
+`v0.5.0` tagged and published (the three pre-STEP5 versions manually, as
+plain notes-only pre-releases — their commits predate this pipeline
+entirely, so tagging them triggers no CI run at all, silently; `v0.5.0`
+for real, through the pipeline itself). Recorded here rather than only
+in commit history because two of the three bugs the dry run caught are
+exactly the kind of thing worth knowing about *before* reading this
+pipeline's YAML and assuming it was already proven correct:
+
+1. **Arch's `pkgver` may not contain hyphens.** `workflow_dispatch`'s
+   fallback version string was `0.0.0-dev` — `makepkg` rejected it
+   outright. Real tag pushes were never affected (`0.5.0`-style values
+   have no hyphen), but every dry run failed here until fixed.
+2. **`makepkg`'s dependency check needs `--nodeps`.** The build
+   container's pacman database is never synced, so `webkit2gtk-4.1`/
+   `gtk3` can't resolve — even though this PKGBUILD only repackages an
+   already-built binary and needs neither library present to do it.
+   This one *did* affect real releases too, not just the dry run; it
+   passed on the maker's own machine only because those libraries
+   happen to already be installed there.
+3. **The `release` job had no `actions/checkout` step at all.**
+   `gh release create --generate-notes` needs a git repo to work from;
+   without one it fails with `fatal: not a git repository`. This
+   couldn't be caught by any dry run — `release` is unconditionally
+   skipped under `workflow_dispatch` by design — so it only surfaced on
+   the first real tag push. `v0.5.0`'s tag was deleted and recreated
+   once fixed, since the first attempt published nothing.
+
+All three are fixed and merged; `v0.5.0`'s real release
+(https://github.com/sudo-megas/RESONANCE/releases/tag/v0.5.0) is the
+first artifact this pipeline ever actually produced. The real `v1.0.0`
+cut — the one action this STEP's own stop line explicitly deferred — is
+the maker-initiated action this addendum's date belongs to.
+
+---
 
 ## 6. EXPLICITLY OUT OF STEP5
 
