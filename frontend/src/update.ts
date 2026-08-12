@@ -112,6 +112,10 @@ function openConfirm(heading: string, entries: ConfirmEntry[], showAppName: bool
       showToast(summarizeResults(results));
     } catch (err) {
       status.textContent = extractErrorMessage(err);
+      // commit() may have already applied some of the updates before the
+      // error it just threw — refresh regardless of success/failure so the
+      // mirror never sits stale relative to work that actually happened.
+      await refreshMirror();
       commitBtn.disabled = false;
       cancelBtn.disabled = false;
     }
@@ -139,8 +143,21 @@ export function openUpdateAllConfirm(rows: main.AppRow[]): void {
   const label = drifted.length === 1 ? "1 app" : `${drifted.length} apps`;
   openConfirm(`Update ${label} from source`, entries, true, async () => {
     const results: main.UpdateResult[] = [];
+    const failedApps: string[] = [];
+    // One app's update failing (e.g. the vault becoming unavailable
+    // mid-batch) must not silently abandon every app queued after it —
+    // each is independent, so each gets its own attempt regardless of
+    // whether an earlier one failed.
     for (const row of drifted) {
-      results.push(await UpdateFromSource(row.name));
+      try {
+        results.push(await UpdateFromSource(row.name));
+      } catch {
+        failedApps.push(row.name);
+      }
+    }
+    if (failedApps.length > 0) {
+      const failedLabel = failedApps.length === 1 ? failedApps[0] : `${failedApps.length} apps`;
+      throw new Error(`${summarizeResults(results)}; failed to update ${failedLabel} — the rest were applied`);
     }
     return results;
   });
