@@ -129,5 +129,16 @@ func (a *App) AddApp(name string, absPaths []string) error {
 
 	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: files})
 	stampMachineInfo(&m)
-	return saveManifest(settings.VaultPath, m)
+	if err := saveManifest(settings.VaultPath, m); err != nil {
+		return err
+	}
+	recordActivity("add", name, summarizeAddActivity(name, len(files)))
+	return nil
+}
+
+// summarizeAddActivity builds AddApp's activity-log summary from the file
+// count already in scope at its call site — AddApp has no result struct to
+// draw from, unlike Update/Restore/Undo.
+func summarizeAddActivity(name string, fileCount int) string {
+	return fmt.Sprintf("Added %s (%d files)", name, fileCount)
 }

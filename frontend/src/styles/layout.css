@@ -1,9 +1,9 @@
-/* Logo mark — the maker's actual globe mark (build/icons/128.png, the
-   wordmark-free crop), not a drawn stand-in. */
+/* Logo mark — the maker's actual globe mark, the original wordmark-free
+   asset as authored, not a drawn stand-in or a re-cropped derivative. */
 .logo-mark {
   display: inline-block;
-  width: 18px;
-  height: 18px;
+  width: 88px;
+  height: 88px;
   flex-shrink: 0;
   background: url("../assets/logo.png") center / contain no-repeat;
 }
@@ -12,50 +12,54 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  height: 104px;
   flex-shrink: 0;
-  padding: 0 16px;
+  padding: 0 24px;
   background: var(--pane);
   border-bottom: 1px solid var(--border);
 }
 .topbar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 .app-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 22px;
   letter-spacing: 0.04em;
 }
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 18px;
+  flex-shrink: 0;
 }
 .vault-control {
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 260px;
+  gap: 12px;
+  min-width: 0;
 }
 .vault-path-display {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 15px;
   color: var(--text-dim);
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--spine);
+  border: 1px solid var(--border);
 }
 .text-btn {
   flex-shrink: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 15px;
   cursor: pointer;
 }
 .text-btn:hover {
@@ -66,18 +70,50 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+.btn-icon {
+  display: inline-block;
+  font-size: 13px;
+  /* Optical centering — see .icon-glyph below for why. transform is a
+     no-op on non-replaced inline elements, hence display: inline-block. */
+  transform: translateX(-0.2268em);
+}
 .icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: 20px;
   cursor: pointer;
+}
+/* Icon-only buttons render their PUA glyph inside a .icon-glyph span (kept
+   separate from the button box) so this transform shifts only the glyph,
+   never the button's border/background. The bundled Nerd Font's icon
+   glyphs consistently draw ink past the right edge of their own advance
+   box (verified directly against the font's hmtx/glyf tables — not
+   eyeballed), so flex-centering the box alone leaves the visible ink
+   sitting right of true center. Each offset below is that same glyph's
+   own measured (ink-center − box-center) in em, so every icon lands where
+   the button's box-centering assumed a symmetric glyph would. */
+.icon-glyph {
+  display: inline-block;
+}
+#theme-btn .icon-glyph,
+#about-btn .icon-glyph,
+#activity-btn .icon-glyph,
+.spine-restore-btn .icon-glyph,
+.spine-update-btn .icon-glyph {
+  transform: translateX(-0.1685em);
+}
+#add-app-btn .icon-glyph {
+  transform: translateX(-0.082em);
+}
+#update-all-btn .icon-glyph {
+  transform: translateX(-0.1396em);
 }
 .icon-btn:hover {
   border-color: var(--border-strong);
@@ -88,69 +124,105 @@
   outline-offset: 1px;
 }
 
-/* Mirror shell — a single CSS grid. Every row (header, app, expanded file)
-   contributes 3 direct children into the same grid_template_columns, so
-   every cell aligns by construction — no per-pane scroll-sync, no
-   height-matching code, no code path that can build one side of a row
-   inconsistently with the other. The gradient behind the (possibly
-   shorter-than-viewport) grid keeps the pane/spine bands looking
-   continuous all the way to the bottom of the window regardless of row
-   count. */
+/* Mirror shell — still a single scrolling CSS grid. Every row (header, app,
+   expanded file) contributes 3 direct children into the same
+   grid-template-columns, so every cell aligns by construction — no per-pane
+   scroll-sync, no height-matching code, no code path that can build one side
+   of a row inconsistently with the other. Behind that grid sits a second,
+   non-scrolling grid (.mirror-backdrop) with *identical* column geometry
+   (shared custom properties, one shared rule — the two can never drift):
+   it paints each pane/spine as its own floating card (surface, border,
+   rounding, shadow) all the way to the bottom of the window regardless of
+   row count, replacing the old full-bleed gradient. DOM order (backdrop
+   before rows) is enough for the rows to paint on top — no z-index needed
+   beyond .mirror-header-cell's existing sticky one. */
 .mirror {
+  --spine-width: 140px;
+  --mirror-gap: 16px;
+  --card-radius: 10px;
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: linear-gradient(
-    to right,
-    var(--pane) 0,
-    var(--pane) calc(50% - 48px),
-    var(--spine) calc(50% - 48px),
-    var(--spine) calc(50% + 48px),
-    var(--pane) calc(50% + 48px),
-    var(--pane) 100%
-  );
 }
+.mirror-backdrop,
 .mirror-rows {
   position: absolute;
-  inset: 0;
-  overflow-y: auto;
+  /* Top/side offsets >= shadow blur extent, else the card shadows clip at
+     .mirror's overflow: hidden. Bottom stays 0 — the cards (border-bottom:
+     none, square bottom corners) run flush into the statusbar seam. */
+  inset: 14px 16px 0;
   display: grid;
-  grid-template-columns: 1fr 96px 1fr;
+  grid-template-columns: 1fr var(--spine-width) 1fr;
+  column-gap: var(--mirror-gap);
+}
+.mirror-rows {
+  overflow-y: auto;
   align-content: start;
+  scrollbar-gutter: stable;
+}
+/* Nothing here scrolls; scrollbar-gutter only exists to keep the column
+   math identical to .mirror-rows in classic-scrollbar environments.
+   (WebKitGTK defaults to overlay scrollbars, where both gutters are 0.) */
+.mirror-backdrop {
+  scrollbar-gutter: stable;
+}
+.mirror-backdrop-card {
+  height: 100%;
+  border-radius: var(--card-radius) var(--card-radius) 0 0;
+  border: 2px solid var(--border-strong);
+  border-bottom: none;
+  /* Blur kept short on purpose: with only --mirror-gap (16px) between
+     adjacent cards, a wide blur bleeds all the way across the gap — and
+     since every card throws the same shadow, two neighbors' shadows then
+     double up in the shared gap, making the spine (flanked by two cards)
+     read as wrapped in a solid dark frame while the outer panes (one
+     neighbor each) look comparatively thin. Confirmed by sampling the
+     built app's own pixels: the "thick border" was rgba(0,0,0,~1) shadow
+     ink, not the border-strong stroke, which was already uniform. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 3px 6px rgba(0, 0, 0, 0.16);
+}
+.mirror-backdrop-system,
+.mirror-backdrop-vault {
+  background: var(--pane);
+}
+.mirror-backdrop-spine {
+  background: var(--spine);
 }
 .pane-label {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   letter-spacing: 0.12em;
+  text-align: center;
   color: var(--text-dim);
 }
 
 /* Header row — sticky within the scrolling grid, opaque so it stays
-   readable over content scrolling beneath it. */
+   readable over content scrolling beneath it. Each header cell sits exactly
+   on top of its backdrop card's top edge, so it carries the *same* 2px
+   border + top rounding as .mirror-backdrop-card — the pixels overlap
+   identically instead of the card's border appearing to "start" abruptly
+   below the header. The thinner border-bottom is the unrelated
+   header/first-row divider. */
 .mirror-header-cell {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
   align-items: center;
+  justify-content: center;
   padding: 16px 20px;
-}
-.mirror-header-system {
-  background: var(--pane);
-  border-right: 1px solid var(--border);
+  border: 2px solid var(--border-strong);
   border-bottom: 1px solid var(--border);
+  border-radius: var(--card-radius) var(--card-radius) 0 0;
 }
+.mirror-header-system,
 .mirror-header-vault {
   background: var(--pane);
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
 }
 .mirror-header-spine {
   background: var(--spine);
-  border: 1px solid var(--border-strong);
-  border-top: none;
   justify-content: center;
   gap: 8px;
   padding: 12px 8px;
@@ -183,10 +255,14 @@
   outline-offset: 2px;
 }
 
-/* Row cells — shared base, then a background/border per column. The same
-   classes serve both collapsed app rows and expanded per-file sub-rows, so
-   there is exactly one place that defines what "system column" or "spine
-   column" looks like. */
+/* Row cells — shared base, then per-column alignment. The same classes
+   serve both collapsed app rows and expanded per-file sub-rows, so there is
+   exactly one place that defines what "system column" or "spine column"
+   looks like. Rows are transparent (no background, no side borders): the
+   backdrop card's surface, border, and rounding show through uniformly —
+   the column-gap plus card edges now do the pane-separation job the old
+   flush 1px seams used to. Only the sticky header cells stay opaque. The
+   border-bottom kept here is the unrelated row-to-row divider. */
 .mirror-row-cell {
   min-width: 0;
   display: flex;
@@ -196,23 +272,13 @@
   border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
-.mirror-row-system,
-.file-row-system {
-  background: var(--pane);
-  border-right: 1px solid var(--border);
-}
 .mirror-row-vault,
 .file-row-vault {
-  background: var(--pane);
-  border-left: 1px solid var(--border);
   justify-content: flex-end;
   text-align: right;
 }
 .mirror-row-spine,
 .file-row-state {
-  background: var(--spine);
-  border-left: 1px solid var(--border-strong);
-  border-right: 1px solid var(--border-strong);
   justify-content: center;
 }
 .file-row-system,
@@ -382,19 +448,44 @@
   transform: translateY(0);
 }
 
-/* Status bar */
+/* Status bar — the vault path itself lives only in the topbar (#7); this
+   bar is stats-only so the two never show the same string twice. */
 .statusbar {
   display: flex;
   align-items: center;
-  height: 28px;
+  justify-content: space-between;
+  height: 84px;
   flex-shrink: 0;
-  padding: 0 16px;
+  gap: 16px;
+  padding: 0 24px;
   background: var(--pane);
   border-top: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 14px;
   font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.statusbar-segment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: var(--spine);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+.statusbar-segment--warn {
+  border-color: var(--badge-drift);
+  color: var(--badge-drift);
+}
+.statusbar-icon {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transform: translateX(-0.1685em);
+}
+.statusbar-segment--warn .statusbar-icon {
+  color: var(--badge-drift);
 }

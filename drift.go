@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -219,5 +221,26 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	if err := saveManifest(settings.VaultPath, m); err != nil {
 		return result, err
 	}
+	recordActivity("update", name, summarizeUpdateActivity(result))
 	return result, nil
+}
+
+// summarizeUpdateActivity turns UpdateResult's counts into a short
+// human-readable description for the activity log, e.g. "3 updated, 1
+// source missing". Counts of zero are omitted entirely.
+func summarizeUpdateActivity(result UpdateResult) string {
+	var parts []string
+	if n := len(result.Updated); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d updated", n))
+	}
+	if n := len(result.Skipped); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped", n))
+	}
+	if n := len(result.Missing); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d source missing", n))
+	}
+	if len(parts) == 0 {
+		return "no changes"
+	}
+	return strings.Join(parts, ", ")
 }

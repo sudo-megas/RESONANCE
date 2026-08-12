@@ -34,6 +34,10 @@ export function GetMirrorRows() {
   return window['go']['main']['App']['GetMirrorRows']();
 }
 
+export function GetRecentActivity() {
+  return window['go']['main']['App']['GetRecentActivity']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
