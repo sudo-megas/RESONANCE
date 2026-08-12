@@ -179,19 +179,18 @@ jobs:
         with:
           name: resonance-arch
 
-      # v1.0.0 is the only tag this project ever publishes as a normal,
-      # full GitHub release — every other tag is a pre-release. See
-      # build/docs/STEP5.md §4.
+      # Every tag from v1.0.0 onward publishes as a normal, full GitHub
+      # release; only pre-1.0 (v0.x) tags are marked pre-release.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -e
-          PRERELEASE_FLAG="--prerelease"
-          if [ "$REF_NAME" = "v1.0.0" ]; then
-            PRERELEASE_FLAG=""
-          fi
+          PRERELEASE_FLAG=""
+          case "$REF_NAME" in
+            v0.*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
           gh release create "$REF_NAME" *.deb *.pkg.tar.zst \
             --title "$REF_NAME" \
             --generate-notes \
