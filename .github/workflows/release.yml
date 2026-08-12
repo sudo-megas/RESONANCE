@@ -76,9 +76,10 @@ jobs:
           fi
 
       - name: Assemble .deb
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -e
-          VERSION="${{ steps.version.outputs.value }}"
           ROOT="pkgroot"
           install -Dm755 artifact/resonance "$ROOT/usr/bin/resonance"
           install -Dm644 build/packaging/resonance.desktop "$ROOT/usr/share/applications/resonance.desktop"
@@ -115,20 +116,25 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
             # Arch's pkgver may not contain colons, forward slashes,
             # hyphens or whitespace -- unlike the .deb job's version
             # string, this one goes straight into a sed substitution
-            # of PKGBUILD's pkgver= line, so it must be valid on its own.
+            # of PKGBUILD's pkgver= line, so a real tag using a
+            # hyphenated pre-release suffix (e.g. v1.0.1-rc1) must be
+            # sanitized here too, not just the dry-run fallback below.
+            RAW="${GITHUB_REF_NAME#v}"
+            echo "value=$(printf '%s' "$RAW" | tr -c 'A-Za-z0-9._' '_')" >> "$GITHUB_OUTPUT"
+          else
             echo "value=0.0.0dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Arch package
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -e
           chmod +x build/bin/resonance
-          sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.value }}/" build/packaging/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" build/packaging/PKGBUILD
           # makepkg refuses to run as root (the container's default user) —
           # a throwaway build user is the standard workaround, and since
           # this PKGBUILD only packages an already-built binary (no
@@ -179,13 +185,14 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -e
           PRERELEASE_FLAG="--prerelease"
-          if [ "${{ github.ref_name }}" = "v1.0.0" ]; then
+          if [ "$REF_NAME" = "v1.0.0" ]; then
             PRERELEASE_FLAG=""
           fi
-          gh release create "${{ github.ref_name }}" *.deb *.pkg.tar.zst \
-            --title "${{ github.ref_name }}" \
+          gh release create "$REF_NAME" *.deb *.pkg.tar.zst \
+            --title "$REF_NAME" \
             --generate-notes \
             $PRERELEASE_FLAG
