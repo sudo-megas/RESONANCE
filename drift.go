@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,29 @@ import (
 // FileRow is one backed-up file's live state, computed fresh on every call
 // to GetMirrorRows — never cached, never stale.
 type FileRow struct {
-	Path           string `json:"path"`
-	State          string `json:"state"`          // "ok" | "drifted" | "missing"
+	Path string `json:"path"`
+
+	// State is one of:
+	//   "ok"            source and vault agree
+	//   "drifted"       source has changed since it was backed up
+	//   "missing"       the live source file is gone
+	//   "vaultMissing"  the source is fine but the vault's copy is gone
+	//   "untracked"     found inside a tracked folder, never backed up yet
+	//
+	// "missing" and "vaultMissing" are deliberately distinct because they are
+	// opposite problems with opposite remedies: a vault-missing file is fixed
+	// by Update (copy it again), while a source-missing file cannot be, and
+	// its vault copy is the only surviving one. Collapsing them would tell
+	// the user to do the one thing that doesn't help.
+	State string `json:"state"`
+
 	SourceModified string `json:"sourceModified"` // RFC3339 UTC; "" if source missing
 	VaultModified  string `json:"vaultModified"`  // == ManifestFile.BackedUpAt
+
+	// Size is the vault copy's size, surfaced so the VAULT pane can describe
+	// what it actually holds instead of showing a bare date. 0 when there is
+	// no vault copy.
+	Size int64 `json:"size"`
 }
 
 // AppRow is one app's entire mirror-row data — every file's live drift
@@ -98,12 +118,44 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 		return nil, err
 	}
 
+	// Resolved once per call, not per directory: these are what the tracked
+	// folder walk must never wander into.
+	skip := []string{resolveDir(settings.VaultPath)}
+	if stateDir, err := resonanceStateDir(); err == nil {
+		skip = append(skip, resolveDir(stateDir))
+	}
+
 	rows := make([]AppRow, 0, len(m.Apps))
 	for _, app := range m.Apps {
+		vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 		row := AppRow{Name: app.Name, Files: make([]FileRow, 0, len(app.Files))}
+
+		known := make(map[string]bool, len(app.Files))
 		for _, f := range app.Files {
-			row.Files = append(row.Files, fileDriftRow(home, f))
+			known[f.Path] = true
+			row.Files = append(row.Files, fileDriftRow(home, vaultAppDir, f))
 		}
+
+		// Tracked folders are reported, never materialised here: this is a
+		// read path, and it must not rewrite manifest.json behind the user's
+		// back. A file found under a tracked folder that has no manifest
+		// entry yet shows up as "untracked", which marks the app drifted, and
+		// the existing "Update from source" button is what actually copies it
+		// in and records it.
+		for _, d := range app.Dirs {
+			for _, rel := range expandTrackedDir(home, d, skip) {
+				if known[rel] {
+					continue
+				}
+				known[rel] = true
+				fr := FileRow{Path: rel, State: "untracked"}
+				if info, err := os.Stat(filepath.Join(home, filepath.FromSlash(rel))); err == nil {
+					fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
+				}
+				row.Files = append(row.Files, fr)
+			}
+		}
+
 		for _, fr := range row.Files {
 			if fr.State != "ok" {
 				row.Drifted = true
@@ -120,8 +172,10 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 // short-circuit — a mismatch already proves drift without hashing — but a
 // size match alone can't prove identical content, so a full hash read
 // still happens whenever sizes agree.
-func fileDriftRow(home string, f ManifestFile) FileRow {
-	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt}
+// vaultAppDir may be "" to skip the vault-side check entirely; every caller
+// inside the app passes a real one.
+func fileDriftRow(home, vaultAppDir string, f ManifestFile) FileRow {
+	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt, Size: f.Size}
 
 	sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
 	if _, err := homeRelative(sourcePath, home); err != nil {
@@ -135,6 +189,42 @@ func fileDriftRow(home string, f ManifestFile) FileRow {
 	}
 	fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
 
+	// Until v1.2.1 this function never looked at the vault at all — it
+	// compared the live file against a checksum recorded in manifest.json and
+	// reported "ok" on a match. So a vault copy deleted by hand, or lost to a
+	// failing drive, left the row rendering as a healthy backup with a valid
+	// date, and the user only discovered otherwise when they tried to restore
+	// it — possibly on another machine, after the source was gone. A backup
+	// tool asserting it holds a file it does not hold is the worst thing this
+	// program can do, so the vault side is now checked too.
+	//
+	// One os.Stat per file, no hashing: GetMirrorRows already hashes every
+	// source file on every refresh, and the vault often lives on slow
+	// removable media, so existence and size are checked here and full
+	// content verification is left to the explicit per-app differences view.
+	if vaultAppDir != "" {
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+		if _, err := homeRelative(vaultFile, vaultAppDir); err != nil {
+			fr.State = "vaultMissing"
+			return fr
+		}
+		vInfo, err := os.Lstat(vaultFile)
+		switch {
+		case err != nil:
+			fr.State = "vaultMissing"
+			return fr
+		case !vInfo.Mode().IsRegular():
+			// A symlink or directory standing where the backup should be is
+			// not a backup. refuseSymlink guards reads elsewhere; here the
+			// honest answer is simply that the copy isn't there.
+			fr.State = "vaultMissing"
+			return fr
+		case f.Size != 0 && vInfo.Size() != f.Size:
+			fr.State = "vaultMissing"
+			return fr
+		}
+	}
+
 	if f.Checksum == "" || info.Size() != f.Size {
 		fr.State = "drifted"
 		return fr
@@ -146,6 +236,94 @@ func fileDriftRow(home string, f ManifestFile) FileRow {
 	}
 	fr.State = "ok"
 	return fr
+}
+
+// vaultCopyIntact reports whether the vault still holds a plain file of the
+// expected size at path. Lstat, not Stat: a symlink left where the backup
+// should be is not the backup, and following it would let whatever it points
+// at masquerade as one.
+func vaultCopyIntact(path string, wantSize int64) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	return wantSize == 0 || info.Size() == wantSize
+}
+
+// expandTrackedDir lists every regular file currently under one tracked
+// folder, as $HOME-relative slash-separated paths.
+//
+// It resolves symlinks before trusting anything, and that is the whole point
+// of the function rather than a detail. homeRelative is filepath.Rel plus a
+// ".." prefix test — pure string work, resolving nothing — and filepath.
+// WalkDir lstats its root, which under POSIX declines to follow only the
+// FINAL component while following every intermediate one. So a stored entry
+// like ".wine/dosdevices/z:/etc" passes every lexical check and then walks
+// all of /etc, because ~/.wine/dosdevices/z: really is a symlink to / that
+// wine ships by default (~/.steam/root and any hand-made ~/mnt -> /mnt
+// behave the same). Worse, every path discovered under it also passes a
+// second homeRelative check, because the strings genuinely do start with
+// $HOME. The result would be /etc/* listed as this app's files, one click
+// away from being copied into the vault.
+//
+// Resolving the root and deriving every result from the resolved home is
+// what actually contains the walk. Symlinked entries are skipped outright
+// rather than emitted, and skipResolved (the vault and RESONANCE's own state
+// directory, already resolved) is compared against resolved paths too — a
+// vault at ~/dots reached through ~/backup would otherwise enumerate itself.
+func expandTrackedDir(home, relDir string, skipResolved []string) []string {
+	realHome := resolveDir(home)
+
+	absDir := filepath.Join(home, filepath.FromSlash(relDir))
+	realRoot, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return nil // gone, or unreadable — nothing to report
+	}
+	if _, err := homeRelative(realRoot, realHome); err != nil {
+		return nil // escapes $HOME once resolved, whatever the string said
+	}
+	// A root sitting INSIDE the vault (or inside RESONANCE's state directory)
+	// has nothing to offer but the app's own stored copies, so the whole walk
+	// is abandoned. The reverse — a root that merely contains the vault — is
+	// still walked, with the vault subtree skipped as it is reached below;
+	// refusing outright there would throw away every legitimate file
+	// alongside it.
+	for _, skip := range skipResolved {
+		if skip != "" && containsPath(skip, realRoot) {
+			return nil
+		}
+	}
+
+	var out []string
+	_ = filepath.WalkDir(realRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable corner of the tree — report the rest
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			for _, skip := range skipResolved {
+				if skip != "" && containsPath(skip, path) {
+					return fs.SkipDir
+				}
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := homeRelative(path, realHome)
+		if err != nil {
+			return nil
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	return out
 }
 
 // UpdateFromSource re-copies every file in the named app from its live
@@ -186,6 +364,32 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	}
 
 	app := &m.Apps[appIndex]
+
+	// Materialise anything new that has appeared inside a tracked folder
+	// since the last update. GetMirrorRows only reports these; this is the
+	// one place they become real manifest entries, so "→ Update from source"
+	// keeps its existing single meaning — bring the vault in line with the
+	// system — and no separate "refresh sources" button has to exist.
+	if len(app.Dirs) > 0 {
+		skip := []string{resolveDir(settings.VaultPath)}
+		if stateDir, err := resonanceStateDir(); err == nil {
+			skip = append(skip, resolveDir(stateDir))
+		}
+		known := make(map[string]bool, len(app.Files))
+		for _, f := range app.Files {
+			known[f.Path] = true
+		}
+		for _, d := range app.Dirs {
+			for _, rel := range expandTrackedDir(home, d, skip) {
+				if known[rel] {
+					continue
+				}
+				known[rel] = true
+				app.Files = append(app.Files, ManifestFile{Path: rel})
+			}
+		}
+	}
+
 	for i := range app.Files {
 		f := &app.Files[i]
 		sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
@@ -207,7 +411,14 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 			continue
 		}
 
-		if f.Checksum != "" && srcInfo.Size() == f.Size {
+		// "The source still matches the checksum we recorded" is only a
+		// reason to skip if the vault copy that checksum describes is
+		// actually still there. Without this, a vault copy deleted by hand or
+		// lost to a bad drive could never be re-created: the source matches,
+		// so every Update would report "skipped, already identical" while the
+		// backup stayed missing — which is precisely the false confidence the
+		// vaultMissing state exists to expose.
+		if f.Checksum != "" && srcInfo.Size() == f.Size && vaultCopyIntact(vaultFile, f.Size) {
 			if sum, err := fileChecksum(sourcePath); err == nil && sum == f.Checksum {
 				result.Skipped = append(result.Skipped, f.Path)
 				continue

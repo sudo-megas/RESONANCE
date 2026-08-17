@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const manifestVersion = 1
@@ -29,6 +32,21 @@ type Manifest struct {
 type ManifestApp struct {
 	Name  string         `json:"name"`
 	Files []ManifestFile `json:"files"`
+
+	// Dirs are folders whose current contents belong to this app, stored
+	// $HOME-relative and slash-separated exactly like ManifestFile.Path.
+	// Additive, on the same footing as Size/Checksum/BackedUpAt above:
+	// absent from every manifest.json written before v1.2.1, and
+	// manifestVersion deliberately stays 1 because an entry no older binary
+	// understands is not a format change.
+	//
+	// Downgrading is lossy, and silently so: encoding/json drops fields it
+	// doesn't know about on unmarshal, so an older RESONANCE that loads and
+	// then saves this manifest strips every tracked folder. Nothing is
+	// corrupted and no backed-up file is lost — the materialised Files
+	// entries survive untouched — but the folders stop being tracked and
+	// nothing tells the user.
+	Dirs []string `json:"dirs,omitempty"`
 }
 
 type ManifestFile struct {
@@ -46,12 +64,103 @@ func manifestPath(vaultPath string) string {
 	return filepath.Join(vaultPath, "manifest.json")
 }
 
+// describePathProblem turns a filesystem error about a vault path into one
+// sentence a person can act on. The old blanket "vault not found — is the
+// drive connected?" actively lied whenever the real cause was permission or
+// a read-only remount — and an external drive remounted read-only after an
+// unclean unmount is the likeliest EROFS case on the hardware this app is
+// built for. Naming the real cause is also what gives v1.2.2's
+// act-as-administrator prompt something honest to attach to: it can offer
+// elevation exactly when the cause is permission, and never otherwise.
+func describePathProblem(path string, err error) error {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("vault not found at %s — is the drive connected?", path)
+	case errors.Is(err, fs.ErrPermission):
+		return fmt.Errorf("no permission to use %s — that folder belongs to another user, and RESONANCE runs as you", path)
+	case errors.Is(err, syscall.EROFS):
+		return fmt.Errorf("%s is on a read-only filesystem — RESONANCE can't write there", path)
+	case errors.Is(err, syscall.ENOTDIR):
+		return fmt.Errorf("%s is a file, not a folder", path)
+	default:
+		return fmt.Errorf("can't use %s: %w", path, err)
+	}
+}
+
+// requireVaultDir proves a directory is there without creating anything —
+// used where the caller needs an existing vault (migration's source), as
+// opposed to accepting a new one.
+func requireVaultDir(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return describePathProblem(path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is a file, not a folder", path)
+	}
+	return nil
+}
+
+// ensureVaultDir creates the vault folder if it isn't there — but only one
+// level, and only when its parent already exists.
+//
+// os.MkdirAll would be the obvious call and is the wrong one. The saved
+// vault path in the bug this fixes is /run/media/megas/DOTFILES/TEST: with
+// the drive unplugged, MkdirAll would happily invent that entire chain on
+// the root filesystem, shadowing the mount point so the real drive can
+// never mount there again, and silently writing every future backup to a
+// directory that vanishes the moment the drive is plugged back in.
+// Refusing when the parent is missing turns that disaster into a sentence
+// the user can act on. When the drive IS connected and only the folder was
+// deleted — the actual reported case — the one-level Mkdir is exactly what
+// unsticks them.
+func ensureVaultDir(path string) error {
+	info, err := os.Stat(path)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%s is a file, not a folder", path)
+		}
+		return nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return describePathProblem(path, err)
+	}
+
+	parent := filepath.Dir(path)
+	parentInfo, err := os.Stat(parent)
+	if err != nil || !parentInfo.IsDir() {
+		return fmt.Errorf(
+			"%s isn't there, and neither is the folder that should contain it (%s) — if your vault lives on a drive, connect it and try again",
+			path, parent)
+	}
+	if err := os.Mkdir(path, 0755); err != nil {
+		return describePathProblem(path, err)
+	}
+	return nil
+}
+
+// ensureVaultWritable proves RESONANCE can actually write into dir, using
+// the very same os.CreateTemp call writeFileAtomic uses for real writes —
+// a permission or read-only-mount check built from mode bits or ACLs could
+// disagree with the write that follows, and this one cannot. The .tmp-*
+// prefix is deliberate: a crash mid-probe leaves a file indistinguishable
+// from an interrupted atomic write, so it introduces no new kind of litter.
+func ensureVaultWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return describePathProblem(dir, err)
+	}
+	name := f.Name()
+	f.Close()
+	return os.Remove(name)
+}
+
 // loadManifest distinguishes "the vault directory itself doesn't exist"
 // (a real error — unmounted drive, stale saved path) from "the directory
 // exists but has no manifest.json yet" (a fresh, valid, empty vault).
 func loadManifest(vaultPath string) (Manifest, error) {
 	if _, err := os.Stat(vaultPath); err != nil {
-		return Manifest{}, errors.New("vault not found — is the drive connected?")
+		return Manifest{}, describePathProblem(vaultPath, err)
 	}
 
 	data, err := os.ReadFile(manifestPath(vaultPath))
@@ -97,7 +206,44 @@ func sanitizeManifestApps(apps []ManifestApp) []ManifestApp {
 			continue
 		}
 		seen[key] = true
+		app.Dirs = sanitizeTrackedDirs(app.Dirs)
 		out = append(out, app)
+	}
+	return out
+}
+
+// sanitizeTrackedDirs drops any tracked-folder entry that isn't a plain
+// relative path staying inside $HOME, and collapses duplicates. Same
+// reasoning as sanitizeManifestApps above: manifest.json is untrusted input,
+// and every consumer of Dirs joins it onto $HOME and then walks it.
+//
+// This is a necessary check, not a sufficient one, and the distinction
+// matters enough to state here: it is purely lexical, so it stops "../../etc"
+// but cannot stop ".wine/dosdevices/z:/etc", where an intermediate component
+// is a symlink to /. Nothing string-based can. The walk itself must resolve
+// symlinks before trusting a path — see expandTrackedDir in drift.go.
+func sanitizeTrackedDirs(dirs []string) []string {
+	if len(dirs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(dirs))
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(d)))
+		if clean == "" || clean == "." || clean == ".." {
+			continue
+		}
+		if filepath.IsAbs(clean) || strings.HasPrefix(clean, "../") {
+			continue
+		}
+		if seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		out = append(out, clean)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

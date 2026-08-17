@@ -201,10 +201,20 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	var mutations []pendingMutation
 
 	app := m.Apps[appIndex]
+	vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 	for _, f := range app.Files {
-		row := fileDriftRow(home, f)
+		row := fileDriftRow(home, vaultAppDir, f)
 		if row.State == "ok" {
 			result.Skipped = append(result.Skipped, f.Path)
+			continue
+		}
+		// Nothing to restore from, so say that plainly instead of capturing
+		// an undo snapshot and then failing on the copy with a bare errno.
+		if row.State == "vaultMissing" {
+			result.Failed = append(result.Failed, RestoreFailure{
+				Path:   f.Path,
+				Reason: "the vault's copy of this file is missing — update from source to back it up again",
+			})
 			continue
 		}
 
@@ -221,7 +231,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		}
 		entries = append(entries, entry)
 
-		vaultFile := filepath.Join(settings.VaultPath, app.Name, filepath.FromSlash(f.Path))
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
 		mutations = append(mutations, pendingMutation{
 			path:       f.Path,
 			destPath:   destPath,
