@@ -1,4 +1,4 @@
-import { GetSettings, AddApp, PickFiles } from "../wailsjs/go/main/App";
+import { GetSettings, AddApp, PickFiles, PickFolders, PreviewPaths } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
 import { refreshMirror } from "./rows";
@@ -53,15 +53,37 @@ export async function openAddApp(): Promise<void> {
   nameInput.placeholder = "bash";
   content.appendChild(nameInput);
 
+  // Two buttons rather than one, because the XDG desktop portal's directory
+  // option is a mode switch and not a filter: a dialog either returns files
+  // or returns folders, and no single dialog can return both. They feed the
+  // same list, so the mix happens here instead.
+  const chooseRow = document.createElement("div");
+  chooseRow.className = "addapp-choose-row";
+
   const chooseFilesBtn = document.createElement("button");
   chooseFilesBtn.type = "button";
   chooseFilesBtn.className = "addapp-choose-files-btn";
   chooseFilesBtn.textContent = "Choose files…";
-  content.appendChild(chooseFilesBtn);
+  chooseRow.appendChild(chooseFilesBtn);
+
+  const chooseFoldersBtn = document.createElement("button");
+  chooseFoldersBtn.type = "button";
+  chooseFoldersBtn.className = "addapp-choose-files-btn";
+  chooseFoldersBtn.textContent = "Choose folders…";
+  chooseRow.appendChild(chooseFoldersBtn);
+
+  content.appendChild(chooseRow);
 
   const fileList = document.createElement("ul");
   fileList.className = "addapp-filelist";
   content.appendChild(fileList);
+
+  // Choosing a folder is the user's business, so nothing here blocks — but
+  // "~/.config" can mean tens of thousands of files, and being told the size
+  // of the commitment beforehand is not the same as discovering it after.
+  const previewEl = document.createElement("p");
+  previewEl.className = "addapp-preview";
+  content.appendChild(previewEl);
 
   const errorEl = document.createElement("p");
   errorEl.className = "addapp-error";
@@ -74,6 +96,26 @@ export async function openAddApp(): Promise<void> {
   content.appendChild(submitBtn);
 
   const paths: string[] = [];
+  const folders = new Set<string>();
+
+  async function refreshPreview(): Promise<void> {
+    if (paths.length === 0) {
+      previewEl.textContent = "";
+      return;
+    }
+    try {
+      const p = await PreviewPaths(paths);
+      if (p.folderCount === 0) {
+        previewEl.textContent = "";
+        return;
+      }
+      const files = p.fileCount === 1 ? "1 file" : `${p.fileCount.toLocaleString()} files`;
+      const dirs = p.folderCount === 1 ? "1 folder" : `${p.folderCount} folders`;
+      previewEl.textContent = `${files} from ${dirs} — the folders stay tracked, so anything added to them later is picked up too.`;
+    } catch {
+      previewEl.textContent = "";
+    }
+  }
 
   function renderFileList(): void {
     fileList.innerHTML = "";
@@ -83,7 +125,8 @@ export async function openAddApp(): Promise<void> {
 
       const label = document.createElement("span");
       label.className = "addapp-file-path";
-      label.textContent = path;
+      label.textContent = folders.has(path) ? `${path}/` : path;
+      if (folders.has(path)) li.classList.add("addapp-file-row--folder");
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
@@ -93,7 +136,9 @@ export async function openAddApp(): Promise<void> {
       removeBtn.addEventListener("click", () => {
         const idx = paths.indexOf(path);
         if (idx !== -1) paths.splice(idx, 1);
+        folders.delete(path);
         renderFileList();
+        void refreshPreview();
       });
 
       li.appendChild(label);
@@ -110,17 +155,22 @@ export async function openAddApp(): Promise<void> {
 
   nameInput.addEventListener("input", updateSubmitState);
 
-  chooseFilesBtn.addEventListener("click", async () => {
+  async function pickInto(pick: () => Promise<string[]>, asFolders: boolean): Promise<void> {
     try {
-      const picked = await PickFiles();
+      const picked = await pick();
       for (const p of picked) {
         if (!paths.includes(p)) paths.push(p);
+        if (asFolders) folders.add(p);
       }
       renderFileList();
+      await refreshPreview();
     } catch (err) {
       errorEl.textContent = extractErrorMessage(err);
     }
-  });
+  }
+
+  chooseFilesBtn.addEventListener("click", () => void pickInto(PickFiles, false));
+  chooseFoldersBtn.addEventListener("click", () => void pickInto(PickFolders, true));
 
   submitBtn.addEventListener("click", async () => {
     const nameError = clientValidAppName(nameInput.value);

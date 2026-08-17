@@ -40,10 +40,25 @@ function buildFileList(entries: ConfirmEntry[], showAppName: boolean): HTMLUList
 
     const dates = document.createElement("span");
     dates.className = "update-confirm-date";
-    dates.textContent =
-      file.state === "missing"
-        ? "source missing — will be skipped"
-        : `${formatDate(file.sourceModified)} → ${formatLastUpdated(file.vaultModified)}`;
+    // Each state gets its own line rather than falling through to the
+    // date-arrow-date form, which would render an empty right-hand side for
+    // a file that has no vault copy to date.
+    switch (file.state) {
+      case "missing":
+        dates.textContent = "source missing — will be skipped";
+        break;
+      case "untracked":
+        dates.textContent = `${formatDate(file.sourceModified)} → not backed up yet`;
+        break;
+      case "vaultMissing":
+        dates.textContent = `${formatDate(file.sourceModified)} → backup missing, will be replaced`;
+        break;
+      case "vaultDamaged":
+        dates.textContent = `${formatDate(file.sourceModified)} → backup doesn't match, will be replaced`;
+        break;
+      default:
+        dates.textContent = `${formatDate(file.sourceModified)} → ${formatLastUpdated(file.vaultModified)}`;
+    }
 
     li.appendChild(path);
     li.appendChild(dates);

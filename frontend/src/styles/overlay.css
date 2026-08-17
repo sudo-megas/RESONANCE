@@ -275,6 +275,66 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+/* Two pickers side by side. The portal can't return a mixed file+folder
+   selection, so the two dialogs are separate by necessity, not by choice. */
+.addapp-choose-row {
+  display: flex;
+  gap: 8px;
+}
+.addapp-preview {
+  margin: 0 0 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.addapp-file-row--folder .addapp-file-path {
+  color: var(--accent);
+}
+/* Used by the vault recovery and migration surfaces for the sentence that
+   explains a consequence, as distinct from the status line that reports an
+   outcome. */
+.vault-decision-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.restore-report-summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.restore-report-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.restore-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.restore-report-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.restore-report-reason {
+  font-size: 11px;
+  color: var(--danger);
+}
+.restore-report-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .addapp-choose-files-btn {
   padding: 8px 14px;
   margin: 0 0 12px;
@@ -639,6 +699,114 @@
 .diff-fallback-note {
   margin: 0;
   font-style: italic;
+}
+
+/* Per-app differences overlay. Deliberately built from the same parts as the
+   restore preview above — same list bounds, same disclosure triangle, same
+   diff tokens — because CORE.md asks for one overlay grammar, not a second
+   dialect that happens to show similar things. */
+.differences-summary {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.differences-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.differences-row {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.differences-row-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.differences-row-toggle {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.differences-row-toggle::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform 150ms ease;
+  display: block;
+}
+.differences-row-toggle--expanded::before {
+  transform: rotate(90deg);
+}
+.differences-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.differences-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.differences-row--drifted .differences-state {
+  color: var(--badge-drift);
+}
+.differences-row--missing .differences-state,
+.differences-row--vaultMissing .differences-state,
+.differences-row--vaultDamaged .differences-state {
+  color: var(--danger);
+}
+.differences-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding-left: 26px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.differences-diff {
+  margin: 8px 0 0 26px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* The signs mean the opposite of what they mean in the restore preview, so
+   they are labelled rather than left to be inferred. */
+.differences-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.differences-legend-item--vault {
+  color: var(--danger);
+}
+.differences-legend-item--system {
+  color: var(--diff-add);
 }
 
 .restore-confirm-gate {

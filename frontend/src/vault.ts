@@ -1,11 +1,13 @@
+import { main } from "../wailsjs/go/models";
 import {
   GetSettings,
-  SaveSettings,
   ChooseVaultPath,
   ProbeVaultPath,
   AdoptVaultPath,
   CopyVaultTo,
   MoveVaultTo,
+  UseVaultPath,
+  CheckVaultDir,
 } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { refreshMirror } from "./rows";
@@ -60,8 +62,12 @@ export function openVaultPrompt(): Promise<void> {
           chooseBtn.disabled = false;
           return;
         }
-        const current = await GetSettings();
-        await SaveSettings({ ...current, vaultPath: path });
+        // UseVaultPath rather than a bare SaveSettings: it creates the
+        // folder if it isn't there, proves it can actually be written to,
+        // and refuses the handful of places a vault must never live. Saving
+        // the raw picker result was how a path that no later write could
+        // succeed at got persisted in the first place.
+        await UseVaultPath(path);
         refreshVaultPathDisplay(path);
         closeOverlay();
         resolve();
@@ -75,6 +81,126 @@ export function openVaultPrompt(): Promise<void> {
   });
 }
 
+/**
+ * Offered when the vault FOLDER can't be reached — an unplugged drive, a
+ * deleted folder, a path that now belongs to someone else.
+ *
+ * Before this existed the user was simply stuck: Copy and Move both died
+ * walking the missing source, adopting refused any folder without a
+ * manifest, and Change Path had no "just use this one" branch. The saved
+ * path could not be changed to anything, which is the state the v1.2.1
+ * report was actually written from.
+ *
+ * Opened ONLY for a directory-level failure. A vault that is present but
+ * whose manifest won't parse stays a dismissable message with the app fully
+ * usable — see CheckVaultDir.
+ */
+export function openVaultRecovery(status: main.VaultDirStatus, dismissable: boolean): void {
+  const content = document.createElement("div");
+  content.className = "vault-prompt";
+
+  if (dismissable) {
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "overlay-close";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.textContent = "";
+    closeBtn.addEventListener("click", () => closeOverlay());
+    content.appendChild(closeBtn);
+  }
+
+  const heading = document.createElement("h2");
+  heading.className = "overlay-heading";
+  heading.textContent = "Your vault isn't there";
+  content.appendChild(heading);
+
+  const explain = document.createElement("p");
+  explain.className = "vault-prompt-explain";
+  explain.textContent = status.message || `RESONANCE can't reach ${status.path}.`;
+  content.appendChild(explain);
+
+  const note = document.createElement("p");
+  note.className = "vault-decision-note";
+  note.textContent =
+    "Nothing has been changed or deleted. If the vault lives on a drive, connecting it and choosing Try Again is usually all it needs.";
+  content.appendChild(note);
+
+  const msg = document.createElement("p");
+  msg.className = "vault-prompt-status";
+  content.appendChild(msg);
+
+  const actions = document.createElement("div");
+  actions.className = "vault-decision";
+  content.appendChild(actions);
+
+  async function settle(): Promise<void> {
+    const settings = await GetSettings();
+    refreshVaultPathDisplay(settings.vaultPath);
+    closeOverlay();
+    await refreshMirror();
+  }
+
+  const retryBtn = document.createElement("button");
+  retryBtn.type = "button";
+  retryBtn.textContent = "Try Again";
+  retryBtn.addEventListener("click", async () => {
+    retryBtn.disabled = true;
+    msg.textContent = "";
+    const again = await CheckVaultDir();
+    if (again.reachable) {
+      await settle();
+      return;
+    }
+    msg.textContent = again.message || "Still can't reach it.";
+    retryBtn.disabled = false;
+  });
+  actions.appendChild(retryBtn);
+
+  // Only creates the folder — it cannot bring back what was in it, and the
+  // button's own explanation says so rather than letting "recreate" read as
+  // "restore".
+  const recreateBtn = document.createElement("button");
+  recreateBtn.type = "button";
+  recreateBtn.textContent = "Recreate the folder (empty)";
+  recreateBtn.title =
+    "Creates the folder again at the same path. It will be empty — the files that were in it are not recoverable from here.";
+  recreateBtn.addEventListener("click", async () => {
+    recreateBtn.disabled = true;
+    msg.textContent = "";
+    try {
+      await UseVaultPath(status.path);
+      await settle();
+    } catch (err) {
+      msg.textContent = extractErrorMessage(err);
+      recreateBtn.disabled = false;
+    }
+  });
+  actions.appendChild(recreateBtn);
+
+  const chooseBtn = document.createElement("button");
+  chooseBtn.type = "button";
+  chooseBtn.textContent = "Choose Another Folder";
+  chooseBtn.addEventListener("click", async () => {
+    chooseBtn.disabled = true;
+    msg.textContent = "";
+    try {
+      const picked = await ChooseVaultPath();
+      if (!picked) {
+        chooseBtn.disabled = false;
+        return;
+      }
+      await UseVaultPath(picked);
+      await settle();
+    } catch (err) {
+      msg.textContent = extractErrorMessage(err);
+      chooseBtn.disabled = false;
+    }
+  });
+  actions.appendChild(chooseBtn);
+
+  openOverlay(content, { dismissable });
+}
+
 function buildDecisionArea(): HTMLDivElement {
   const area = document.createElement("div");
   area.className = "vault-decision";
@@ -84,7 +210,15 @@ function buildDecisionArea(): HTMLDivElement {
 /**
  * Dismissable Change Path flow, available any time after the first launch.
  */
-export function openChangePath(): void {
+export async function openChangePath(): Promise<void> {
+  // If the current vault has gone missing, that is the problem to solve
+  // first — every branch below reads or copies from it.
+  const dirStatus = await CheckVaultDir();
+  if (dirStatus.set && !dirStatus.reachable) {
+    openVaultRecovery(dirStatus, true);
+    return;
+  }
+
   const content = document.createElement("div");
   content.className = "vault-prompt";
 
@@ -163,15 +297,36 @@ export function openChangePath(): void {
         });
         decisionArea.appendChild(msg);
         decisionArea.appendChild(useBtn);
-      } else if (probe.isEmpty) {
+      } else {
+        // No emptiness gate. A folder that already holds files used to be
+        // refused outright with "choose an empty folder"; picking where your
+        // own vault goes is your business, so it is offered like any other.
         const msg = document.createElement("p");
         msg.textContent = "Copy your vault here, or move it?";
+
+        if (!probe.isEmpty) {
+          const warn = document.createElement("p");
+          warn.className = "vault-decision-note";
+          const count =
+            probe.entryCount === 1 ? "1 item" : `${probe.entryCount.toLocaleString()} items`;
+          warn.textContent = `This folder already has ${count} in it. Copying here won't remove any of them, but files with the same names will be overwritten.`;
+          decisionArea.appendChild(warn);
+        }
+
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
         copyBtn.textContent = "Copy";
         const moveBtn = document.createElement("button");
         moveBtn.type = "button";
         moveBtn.textContent = "Move";
+        // Move is the only operation that later deletes the folder it moved
+        // away from, so it is the only one withheld when the destination
+        // already holds things that were never part of the vault. Copy does
+        // the same job here and destroys nothing.
+        if (!probe.isEmpty) {
+          moveBtn.disabled = true;
+          moveBtn.title = "Move isn't offered into a folder that already has files — use Copy";
+        }
 
         async function runMigration(fn: (path: string) => Promise<void>, btn: HTMLButtonElement): Promise<void> {
           copyBtn.disabled = true;
@@ -207,12 +362,29 @@ export function openChangePath(): void {
           runMigration(MoveVaultTo, moveBtn);
         });
 
-        decisionArea.appendChild(msg);
+        // Pointing at a folder without migrating anything — the escape hatch
+        // that existed only on first launch before this. Without it, a user
+        // whose vault has gone missing has no way to start over: adopting
+        // needs a manifest, and migrating needs a source vault to read.
+        const freshBtn = document.createElement("button");
+        freshBtn.type = "button";
+        freshBtn.textContent = "Just use this folder";
+        freshBtn.title = "Point RESONANCE here without copying or moving anything";
+        freshBtn.addEventListener("click", async () => {
+          freshBtn.disabled = true;
+          try {
+            await UseVaultPath(newPath);
+            await finish();
+          } catch (err) {
+            status.textContent = extractErrorMessage(err);
+            freshBtn.disabled = false;
+          }
+        });
+
+        decisionArea.insertBefore(msg, decisionArea.firstChild);
         decisionArea.appendChild(copyBtn);
         decisionArea.appendChild(moveBtn);
-      } else {
-        status.textContent =
-          "This folder isn't empty and isn't a RESONANCE vault. Choose an empty folder, or one that already has a RESONANCE vault.";
+        decisionArea.appendChild(freshBtn);
       }
 
       chooseBtn.disabled = false;

@@ -87,6 +87,67 @@ function buildDiffContent(pair: main.DiffPair): HTMLElement {
   return renderDiff(pair.live.text, pair.vault.text);
 }
 
+// Shown instead of a toast when any file failed. Uses the same overlay
+// grammar as every other surface rather than inventing a dialog: a toast is
+// one line that vanishes in a couple of seconds, which cannot carry a
+// per-file reason and is the wrong medium for "something went wrong while
+// writing to your home directory".
+function openRestoreReport(appName: string, result: main.RestoreResult): void {
+  const content = document.createElement("div");
+  content.className = "restore-report";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "overlay-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "";
+  closeBtn.addEventListener("click", () => closeOverlay());
+  content.appendChild(closeBtn);
+
+  const heading = document.createElement("h2");
+  heading.className = "overlay-heading";
+  heading.textContent = `${appName} — restore finished with problems`;
+  content.appendChild(heading);
+
+  const summary = document.createElement("p");
+  summary.className = "restore-report-summary";
+  summary.textContent = summarizeResult(result);
+  content.appendChild(summary);
+
+  const list = document.createElement("ul");
+  list.className = "restore-report-list";
+  for (const failure of result.failed) {
+    const li = document.createElement("li");
+    li.className = "restore-report-row";
+
+    const path = document.createElement("span");
+    path.className = "restore-report-path";
+    path.textContent = failure.path;
+
+    const reason = document.createElement("span");
+    reason.className = "restore-report-reason";
+    reason.textContent = failure.reason;
+
+    li.appendChild(path);
+    li.appendChild(reason);
+    list.appendChild(li);
+  }
+  content.appendChild(list);
+
+  // Everything not listed above did land, and saying so plainly matters:
+  // "restore failed" and "restore partly succeeded" call for different next
+  // moves from the user.
+  if (result.new.length > 0 || result.overwritten.length > 0) {
+    const partial = document.createElement("p");
+    partial.className = "restore-report-note";
+    partial.textContent =
+      "The files not listed here were restored successfully. Undo is available from this app's row.";
+    content.appendChild(partial);
+  }
+
+  openOverlay(content, { dismissable: true });
+}
+
 function buildPreviewRow(appName: string, file: main.FileRow, action: RestoreAction): HTMLLIElement {
   const li = document.createElement("li");
   li.className = `restore-preview-row restore-preview-row--${action}`;
@@ -276,17 +337,33 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   }
   if (epoch !== restoreConfirmEpoch) return;
 
-  if (!row.drifted) {
+  const newFiles = row.files.filter((f) => classify(f.state) === "new");
+  const overwriteFiles = row.files.filter((f) => classify(f.state) === "overwrite");
+
+  // Gate on what is actually restorable, not on row.drifted. Since v1.2.1
+  // an app can be drifted for reasons restore cannot act on — a file found
+  // in a tracked folder that was never backed up, or a vault copy that has
+  // gone missing. Both are repaired by Update (system -> vault), the
+  // opposite direction. Gating on drifted alone would open a restore
+  // preview listing nothing, because classify() correctly declines to offer
+  // an action for either.
+  if (newFiles.length === 0 && overwriteFiles.length === 0) {
     if (undoInfo?.available) {
       openUndoConfirm(row, undoInfo);
       return;
     }
-    showToast(`${row.name} is already up to date — nothing to restore`);
+    const vaultBroken = row.files.some((f) => f.state === "vaultMissing" || f.state === "vaultDamaged");
+    const untracked = row.files.some((f) => f.state === "untracked");
+    if (vaultBroken) {
+      showToast(`${row.name} has no vault copy to restore — update from source first`);
+    } else if (untracked) {
+      showToast(`${row.name} has files that were never backed up — update from source first`);
+    } else {
+      showToast(`${row.name} is already up to date — nothing to restore`);
+    }
     return;
   }
 
-  const newFiles = row.files.filter((f) => classify(f.state) === "new");
-  const overwriteFiles = row.files.filter((f) => classify(f.state) === "overwrite");
   const skipCount = row.files.length - newFiles.length - overwriteFiles.length;
 
   const content = document.createElement("div");
@@ -376,7 +453,15 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
       const result = await RestoreApp(row.name);
       closeOverlay();
       await refreshMirror();
-      showToast(summarizeResult(result));
+      // A bare "1 failed" toast used to be the whole report, with the
+      // per-file reason the backend had already computed thrown away — at
+      // the exact moment the user most needs it, because files on their
+      // system have just been partially overwritten.
+      if (result.failed.length > 0) {
+        openRestoreReport(row.name, result);
+      } else {
+        showToast(summarizeResult(result));
+      }
     } catch (err) {
       status.textContent = extractErrorMessage(err);
       commitBtn.disabled = !gateCheckbox.checked;

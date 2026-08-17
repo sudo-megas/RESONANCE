@@ -106,7 +106,7 @@ desktop library RESONANCE genuinely links against.
 | **Topbar** | The active vault path, a one-click **Change Path** switch (migration-aware — it re-scans before switching), the theme picker, Recent Activity (a persistent log of every add/update/restore/undo), and About. |
 | **SYSTEM** (left pane) | Every app you're tracking on this machine, with a drift badge the moment its live files diverge from the vault. |
 | **VAULT** (right pane) | The same apps as they sit in the vault. The mirror's whole point is these two panes staying identical. |
-| **Spine** (center) | **+** adds a new app to track. **→** updates a drifted app from source, dates confirmed first. Each row's **←** restores that app from the vault — previewing every new, overwritten, and already-identical file, with a real content diff, before anything writes. |
+| **Spine** (center) | **+** adds a new app to track — pick individual files, or pick whole folders, in which case the folder and everything in it is backed up and stays tracked, so anything you add to it later is picked up too. **→** updates a drifted app from source, dates confirmed first. Each row's **←** restores that app from the vault — previewing every new, overwritten, and already-identical file, with a real content diff, before anything writes. The drift badge between them opens a per-app view of exactly which files differ. |
 | **Undo** | The same **←** button, once nothing's drifted: undoes the last restore. One button, everything back exactly as it was. |
 | **Status bar** | Apps tracked, how many are drifted, and when anything last happened — all at a glance. (The vault path itself lives in the topbar, not duplicated here.) |
 

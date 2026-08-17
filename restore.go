@@ -210,11 +210,12 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		}
 		// Nothing to restore from, so say that plainly instead of capturing
 		// an undo snapshot and then failing on the copy with a bare errno.
-		if row.State == "vaultMissing" {
-			result.Failed = append(result.Failed, RestoreFailure{
-				Path:   f.Path,
-				Reason: "the vault's copy of this file is missing — update from source to back it up again",
-			})
+		if row.State == "vaultMissing" || row.State == "vaultDamaged" {
+			reason := "the vault's copy of this file is missing — update from source to back it up again"
+			if row.State == "vaultDamaged" {
+				reason = "the vault's copy of this file doesn't match what was backed up — update from source to replace it"
+			}
+			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: reason})
 			continue
 		}
 

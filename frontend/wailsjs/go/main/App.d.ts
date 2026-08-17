@@ -6,6 +6,8 @@ export function AddApp(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function AdoptVaultPath(arg1:string):Promise<void>;
 
+export function CheckVaultDir():Promise<main.VaultDirStatus>;
+
 export function ChooseVaultPath():Promise<string>;
 
 export function CopyVaultTo(arg1:string):Promise<void>;
@@ -28,12 +30,20 @@ export function MoveVaultTo(arg1:string):Promise<void>;
 
 export function PickFiles():Promise<Array<string>>;
 
+export function PickFolders():Promise<Array<string>>;
+
+export function PreviewPaths(arg1:Array<string>):Promise<main.PathPreview>;
+
 export function ProbeVaultPath(arg1:string):Promise<main.VaultProbe>;
 
 export function RestoreApp(arg1:string):Promise<main.RestoreResult>;
 
 export function SaveSettings(arg1:main.Settings):Promise<void>;
 
+export function ScanVaultOrphans():Promise<main.OrphanReport>;
+
 export function UndoRestore(arg1:string):Promise<main.UndoResult>;
 
 export function UpdateFromSource(arg1:string):Promise<main.UpdateResult>;
+
+export function UseVaultPath(arg1:string):Promise<void>;

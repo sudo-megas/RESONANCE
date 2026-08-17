@@ -48,6 +48,60 @@ func (a *App) ProbeVaultPath(path string) (VaultProbe, error) {
 	return VaultProbe{EntryCount: len(entries)}, nil // non-empty, not a vault
 }
 
+// VaultDirStatus answers one narrow question — is the vault FOLDER there
+// and readable — deliberately kept separate from whether its manifest.json
+// parses.
+//
+// ProbeVaultPath conflates the two: it errors both when the directory can't
+// be read and when manifest.json exists but won't load. Driving the recovery
+// UI from that composite would put a hand-edited or truncated manifest
+// behind a modal headed "vault not found", which is false, and every way out
+// of that modal that preserves the user's vault would fail — re-probing hits
+// the same parse error, and recreating the folder refuses on it too. The
+// only working button would be the one that abandons the vault. Today that
+// same condition is a dismissable message with the app still usable, so
+// conflating them would be a strict regression.
+type VaultDirStatus struct {
+	Path             string `json:"path"`
+	Set              bool   `json:"set"`
+	Reachable        bool   `json:"reachable"`
+	ManifestReadable bool   `json:"manifestReadable"`
+	Message          string `json:"message"`
+}
+
+// CheckVaultDir stats the vault directory and, only if that succeeds, tries
+// the manifest. Recovery is offered for the first failure; the second is
+// reported without ever taking the app away from the user.
+func (a *App) CheckVaultDir() VaultDirStatus {
+	path := a.GetSettings().VaultPath
+	if path == "" {
+		return VaultDirStatus{Set: false}
+	}
+	status := VaultDirStatus{Path: path, Set: true}
+
+	info, err := os.Stat(path)
+	switch {
+	case err != nil:
+		status.Message = describePathProblem(path, err).Error()
+		return status
+	case !info.IsDir():
+		status.Message = fmt.Sprintf("%s is a file, not a folder", path)
+		return status
+	}
+	if _, err := os.ReadDir(path); err != nil {
+		status.Message = describePathProblem(path, err).Error()
+		return status
+	}
+	status.Reachable = true
+
+	if _, err := loadManifest(path); err != nil {
+		status.Message = fmt.Sprintf("The vault folder is there, but its manifest can't be read: %s", err.Error())
+		return status
+	}
+	status.ManifestReadable = true
+	return status
+}
+
 // resolveDir returns path with every symlink component resolved, falling
 // back to a lexical clean when it can't be resolved (the path may not exist
 // yet — a destination about to be created). Every containment decision below

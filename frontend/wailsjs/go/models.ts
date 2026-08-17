@@ -23,6 +23,7 @@ export namespace main {
 	    state: string;
 	    sourceModified: string;
 	    vaultModified: string;
+	    size: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileRow(source);
@@ -34,6 +35,7 @@ export namespace main {
 	        this.state = source["state"];
 	        this.sourceModified = source["sourceModified"];
 	        this.vaultModified = source["vaultModified"];
+	        this.size = source["size"];
 	    }
 	}
 	export class AppRow {
@@ -140,6 +142,36 @@ export namespace main {
 	        this.os = source["os"];
 	        this.hostname = source["hostname"];
 	        this.username = source["username"];
+	    }
+	}
+	export class OrphanReport {
+	    files: string[];
+	    bytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrphanReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.files = source["files"];
+	        this.bytes = source["bytes"];
+	    }
+	}
+	export class PathPreview {
+	    fileCount: number;
+	    folderCount: number;
+	    folders: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PathPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fileCount = source["fileCount"];
+	        this.folderCount = source["folderCount"];
+	        this.folders = source["folders"];
 	    }
 	}
 	export class RestoreFailure {
@@ -270,10 +302,31 @@ export namespace main {
 	        this.missing = source["missing"];
 	    }
 	}
+	export class VaultDirStatus {
+	    path: string;
+	    set: boolean;
+	    reachable: boolean;
+	    manifestReadable: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VaultDirStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.set = source["set"];
+	        this.reachable = source["reachable"];
+	        this.manifestReadable = source["manifestReadable"];
+	        this.message = source["message"];
+	    }
+	}
 	export class VaultProbe {
 	    hasManifest: boolean;
 	    isEmpty: boolean;
 	    appCount: number;
+	    entryCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new VaultProbe(source);
@@ -284,6 +337,7 @@ export namespace main {
 	        this.hasManifest = source["hasManifest"];
 	        this.isEmpty = source["isEmpty"];
 	        this.appCount = source["appCount"];
+	        this.entryCount = source["entryCount"];
 	    }
 	}
 

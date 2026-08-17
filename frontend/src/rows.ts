@@ -5,7 +5,8 @@ import { openUpdateConfirm } from "./update";
 import { openRestoreConfirm } from "./restore";
 import { refreshStatusbar } from "./statusbar";
 import { showToast } from "./toast";
-import { extractErrorMessage } from "./util";
+import { extractErrorMessage, formatSize } from "./util";
+import { openDifferences } from "./differences";
 
 // Single source of truth for the mirror's data. Expand/collapse is a pure
 // client-side toggle against this cache — every file's drift state was
@@ -33,27 +34,61 @@ export function getDriftedApps(): main.AppRow[] {
   return lastRows.filter((r) => r.drifted);
 }
 
-function rowState(row: main.AppRow): "ok" | "drifted" | "missing" {
-  let state: "ok" | "drifted" | "missing" = "ok";
-  for (const f of row.files) {
-    if (f.state === "missing") return "missing";
-    if (f.state === "drifted") state = "drifted";
+// Worst-first. The app-level badge shows the most serious thing wrong with
+// any of its files, so the order here is the editorial judgement about which
+// conditions matter most: a backup that isn't there at all outranks a source
+// that has merely changed, and "found but never backed up" is the mildest —
+// it's a to-do, not a fault.
+const STATE_SEVERITY = ["vaultMissing", "vaultDamaged", "missing", "drifted", "untracked"];
+
+const STATE_LABEL: Record<string, string> = {
+  vaultMissing: "Backup missing from the vault",
+  vaultDamaged: "Backup doesn't match what was saved",
+  missing: "Source file is missing",
+  drifted: "Changed since backup",
+  untracked: "Found in a tracked folder — not backed up yet",
+};
+
+function rowState(row: main.AppRow): string {
+  for (const candidate of STATE_SEVERITY) {
+    if (row.files.some((f) => f.state === candidate)) return candidate;
   }
-  return state;
+  return "ok";
 }
 
-function driftBadge(state: string): HTMLSpanElement | null {
-  if (state === "ok") return null;
-  const badge = document.createElement("span");
-  badge.className = "drift-badge";
-  if (state === "missing") {
-    badge.classList.add("drift-badge--missing");
-    badge.title = "Source file is missing";
-  } else {
-    badge.classList.add("drift-badge--drifted");
-    badge.title = "Changed since backup";
+// The badge doubles as the way in to the per-app differences view. It
+// already appears only when something is wrong and already carries an
+// explanation, so making it activate adds no new chrome to the spine — and
+// "you say something changed, show me what" is the obvious next question.
+function driftBadge(state: string, onOpen?: () => void): HTMLElement | null {
+  if (state === "ok" || !state) return null;
+
+  const label = STATE_LABEL[state] ?? "Changed since backup";
+  const el = document.createElement(onOpen ? "button" : "span");
+  el.className = "drift-badge";
+  el.title = onOpen ? `${label} — click to see what differs` : label;
+
+  switch (state) {
+    case "missing":
+    case "vaultMissing":
+    case "vaultDamaged":
+      el.classList.add("drift-badge--missing");
+      break;
+    case "untracked":
+      el.classList.add("drift-badge--untracked");
+      break;
+    default:
+      el.classList.add("drift-badge--drifted");
   }
-  return badge;
+
+  if (onOpen) {
+    const btn = el as HTMLButtonElement;
+    btn.type = "button";
+    btn.classList.add("drift-badge--button");
+    btn.setAttribute("aria-label", `${label} — show differences`);
+    btn.addEventListener("click", onOpen);
+  }
+  return el;
 }
 
 function toggleExpand(name: string): void {
@@ -100,25 +135,33 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   restoreBtn.type = "button";
   restoreBtn.className = "spine-restore-btn";
   restoreBtn.setAttribute("aria-label", `Restore ${row.name} from vault`);
+  restoreBtn.title = "Restore from vault \u2014 copies the vault's files onto this system";
   const restoreIcon = document.createElement("span");
   restoreIcon.className = "icon-glyph";
   restoreIcon.setAttribute("aria-hidden", "true");
-  restoreIcon.textContent = "\uf019";
+  // fa-long-arrow-left. Was fa-download, which is a DOWN arrow in a layout
+  // whose whole grammar is left/right: SYSTEM on the left, VAULT on the
+  // right, direction is meaning. Restore moves vault -> system, so the arrow
+  // points left, at the pane it writes to.
+  restoreIcon.textContent = "\uf177";
   restoreBtn.appendChild(restoreIcon);
   restoreBtn.addEventListener("click", () => openRestoreConfirm(row));
   spine.appendChild(restoreBtn);
 
-  const badge = driftBadge(rowState(row));
+  const badge = driftBadge(rowState(row), () => openDifferences(row));
   if (badge) spine.appendChild(badge);
 
   const updateBtn = document.createElement("button");
   updateBtn.type = "button";
   updateBtn.className = "spine-update-btn";
   updateBtn.setAttribute("aria-label", `Update ${row.name} from source`);
+  updateBtn.title = "Update from source \u2014 copies this system's files into the vault";
   const updateIcon = document.createElement("span");
   updateIcon.className = "icon-glyph";
   updateIcon.setAttribute("aria-hidden", "true");
-  updateIcon.textContent = "\uf093";
+  // fa-long-arrow-right, replacing fa-upload for the same reason: Update
+  // moves system -> vault, so the arrow points right.
+  updateIcon.textContent = "\uf178";
   updateBtn.appendChild(updateIcon);
   updateBtn.addEventListener("click", () => openUpdateConfirm(row));
   spine.appendChild(updateBtn);
@@ -152,12 +195,41 @@ function buildFileRowCells(row: main.AppRow): HTMLDivElement[] {
     const badge = driftBadge(f.state);
     if (badge) state.appendChild(badge);
 
+    // The VAULT side used to be a bare date, which is what "the vault must
+    // be more verbose" was about: expanding a row bought almost nothing, and
+    // the size and state the app already knew were never shown. It now says
+    // what the vault actually holds — and says so honestly when it holds
+    // nothing.
     const vault = document.createElement("div");
     vault.className = "mirror-row-cell file-row-vault";
+
+    const vaultState = document.createElement("span");
+    vaultState.className = "file-row-vault-state";
     const vaultDate = document.createElement("span");
     vaultDate.className = "file-row-date";
-    vaultDate.textContent = formatLastUpdated(f.vaultModified);
-    vault.appendChild(vaultDate);
+
+    switch (f.state) {
+      case "untracked":
+        vaultState.textContent = "not backed up yet";
+        vaultState.classList.add("file-row-vault-state--absent");
+        break;
+      case "vaultMissing":
+        vaultState.textContent = "backup missing";
+        vaultState.classList.add("file-row-vault-state--absent");
+        vaultDate.textContent = formatLastUpdated(f.vaultModified);
+        break;
+      case "vaultDamaged":
+        vaultState.textContent = "backup doesn't match";
+        vaultState.classList.add("file-row-vault-state--absent");
+        vaultDate.textContent = formatLastUpdated(f.vaultModified);
+        break;
+      default:
+        vaultState.textContent = f.size > 0 ? formatSize(f.size) : "";
+        vaultDate.textContent = formatLastUpdated(f.vaultModified);
+    }
+
+    if (vaultState.textContent) vault.appendChild(vaultState);
+    if (vaultDate.textContent) vault.appendChild(vaultDate);
 
     cells.push(source, state, vault);
   }

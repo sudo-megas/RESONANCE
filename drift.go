@@ -215,12 +215,17 @@ func fileDriftRow(home, vaultAppDir string, f ManifestFile) FileRow {
 			return fr
 		case !vInfo.Mode().IsRegular():
 			// A symlink or directory standing where the backup should be is
-			// not a backup. refuseSymlink guards reads elsewhere; here the
-			// honest answer is simply that the copy isn't there.
-			fr.State = "vaultMissing"
+			// not a backup. Lstat, never Stat: following a symlink planted by
+			// whoever last had the drive would let an outside file decide
+			// whether this row renders as healthy.
+			fr.State = "vaultDamaged"
 			return fr
 		case f.Size != 0 && vInfo.Size() != f.Size:
-			fr.State = "vaultMissing"
+			// Present, but not what was backed up. Reporting this as
+			// "missing" would be inaccurate in the one direction that
+			// matters: the file is there, so a user checking by hand would
+			// see it and conclude the app was wrong.
+			fr.State = "vaultDamaged"
 			return fr
 		}
 	}

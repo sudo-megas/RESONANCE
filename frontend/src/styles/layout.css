@@ -404,6 +404,39 @@
   background: var(--danger);
   box-shadow: 0 0 8px 1px var(--danger);
 }
+/* A file found in a tracked folder but never backed up is a to-do, not a
+   fault, so it reads in the calm accent rather than the drift or danger
+   colours. */
+.drift-badge--untracked {
+  background: var(--accent);
+  box-shadow: 0 0 8px 1px var(--accent);
+}
+/* In the spine the badge is also the way into the differences overlay. It
+   keeps the dot's exact geometry — the button is the dot, not a control
+   wrapped around one — so the spine's optical alignment is unchanged. */
+.drift-badge--button {
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  appearance: none;
+}
+.drift-badge--button:hover {
+  transform: scale(1.25);
+}
+.drift-badge--button:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 3px;
+}
+
+/* The VAULT half of an expanded file row. Until v1.2.1 this was a bare date,
+   which is what "the vault must be more verbose" was about. */
+.file-row-vault-state {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.file-row-vault-state--absent {
+  color: var(--danger);
+}
 
 .file-row-path {
   overflow: hidden;

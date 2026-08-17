@@ -10,6 +10,10 @@ export function AdoptVaultPath(arg1) {
   return window['go']['main']['App']['AdoptVaultPath'](arg1);
 }
 
+export function CheckVaultDir() {
+  return window['go']['main']['App']['CheckVaultDir']();
+}
+
 export function ChooseVaultPath() {
   return window['go']['main']['App']['ChooseVaultPath']();
 }
@@ -54,6 +58,14 @@ export function PickFiles() {
   return window['go']['main']['App']['PickFiles']();
 }
 
+export function PickFolders() {
+  return window['go']['main']['App']['PickFolders']();
+}
+
+export function PreviewPaths(arg1) {
+  return window['go']['main']['App']['PreviewPaths'](arg1);
+}
+
 export function ProbeVaultPath(arg1) {
   return window['go']['main']['App']['ProbeVaultPath'](arg1);
 }
@@ -66,10 +78,18 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
+export function ScanVaultOrphans() {
+  return window['go']['main']['App']['ScanVaultOrphans']();
+}
+
 export function UndoRestore(arg1) {
   return window['go']['main']['App']['UndoRestore'](arg1);
 }
 
 export function UpdateFromSource(arg1) {
   return window['go']['main']['App']['UpdateFromSource'](arg1);
+}
+
+export function UseVaultPath(arg1) {
+  return window['go']['main']['App']['UseVaultPath'](arg1);
 }
