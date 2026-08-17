@@ -358,6 +358,14 @@ func (a *App) ScanVaultOrphans() (OrphanReport, error) {
 	known := make(map[string]bool)
 	for _, app := range m.Apps {
 		for _, f := range app.Files {
+			// sanitizeManifestApps vets app NAMES; nothing vets the per-file
+			// paths, and this map is what decides whether a real file on disk
+			// counts as accounted for. A non-local entry would normalise on
+			// the way into the key and could mask a genuine orphan, so it is
+			// skipped rather than trusted.
+			if !filepath.IsLocal(filepath.FromSlash(f.Path)) {
+				continue
+			}
 			known[path.Join(app.Name, f.Path)] = true
 		}
 	}

@@ -203,7 +203,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	app := m.Apps[appIndex]
 	vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 	for _, f := range app.Files {
-		row := fileDriftRow(home, vaultAppDir, f)
+		row := fileDriftRow(home, settings.VaultPath, app.Name, f)
 		if row.State == "ok" {
 			result.Skipped = append(result.Skipped, f.Path)
 			continue

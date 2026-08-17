@@ -127,13 +127,12 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 
 	rows := make([]AppRow, 0, len(m.Apps))
 	for _, app := range m.Apps {
-		vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 		row := AppRow{Name: app.Name, Files: make([]FileRow, 0, len(app.Files))}
 
 		known := make(map[string]bool, len(app.Files))
 		for _, f := range app.Files {
 			known[f.Path] = true
-			row.Files = append(row.Files, fileDriftRow(home, vaultAppDir, f))
+			row.Files = append(row.Files, fileDriftRow(home, settings.VaultPath, app.Name, f))
 		}
 
 		// Tracked folders are reported, never materialised here: this is a
@@ -172,9 +171,12 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 // short-circuit — a mismatch already proves drift without hashing — but a
 // size match alone can't prove identical content, so a full hash read
 // still happens whenever sizes agree.
-// vaultAppDir may be "" to skip the vault-side check entirely; every caller
-// inside the app passes a real one.
-func fileDriftRow(home, vaultAppDir string, f ManifestFile) FileRow {
+// vaultRoot may be "" to skip the vault-side check entirely; every caller
+// inside the app passes a real one. It is the vault ROOT rather than the
+// app's subdirectory on purpose: containment has to be measured against the
+// vault itself, or an app directory that is a symlink pointing outside would
+// be compared against its own target and trivially "contain" it.
+func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
 	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt, Size: f.Size}
 
 	sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
@@ -202,11 +204,28 @@ func fileDriftRow(home, vaultAppDir string, f ManifestFile) FileRow {
 	// source file on every refresh, and the vault often lives on slow
 	// removable media, so existence and size are checked here and full
 	// content verification is left to the explicit per-app differences view.
-	if vaultAppDir != "" {
+	if vaultRoot != "" {
+		vaultAppDir := filepath.Join(vaultRoot, appName)
 		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+		// Lexical containment first — cheap, and it rejects the obvious
+		// "../.." shapes without touching the disk.
 		if _, err := homeRelative(vaultFile, vaultAppDir); err != nil {
-			fr.State = "vaultMissing"
+			fr.State = "vaultDamaged"
 			return fr
+		}
+		// Then containment that actually holds. homeRelative is filepath.Rel
+		// plus a ".." test, so it proves something about a string, not about
+		// the filesystem — and Lstat declines to follow only the final
+		// component, resolving every directory above it. A symlinked
+		// directory planted inside the vault by whoever last had the drive
+		// would otherwise let a file outside the vault supply the size and
+		// existence this row reports as a healthy backup. Measured against
+		// the vault root, since the app directory itself may be the symlink.
+		if resolved, err := filepath.EvalSymlinks(vaultFile); err == nil {
+			if !containsPath(resolveDir(vaultRoot), resolved) {
+				fr.State = "vaultDamaged"
+				return fr
+			}
 		}
 		vInfo, err := os.Lstat(vaultFile)
 		switch {

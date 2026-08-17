@@ -207,9 +207,9 @@ func TestFileDriftRow_RejectsPathTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// vaultAppDir "" isolates this to the source-side guard, which is what
-	// the test is about.
-	row := fileDriftRow(home, "", ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
+	// An empty vault root isolates this to the source-side guard, which is
+	// what the test is about.
+	row := fileDriftRow(home, "", "", ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
 	if row.State != "missing" {
 		t.Fatalf("State = %q, want missing for a path-traversal entry (must never read outside $HOME)", row.State)
 	}
@@ -300,14 +300,14 @@ func TestFileDriftRow_ReportsMissingVaultCopy(t *testing.T) {
 	f := seedVaultFile(t, vault, "bash", ".bashrc", "live")
 	vaultAppDir := filepath.Join(vault, "bash")
 
-	if row := fileDriftRow(home, vaultAppDir, f); row.State != "ok" {
+	if row := fileDriftRow(home, vault, "bash", f); row.State != "ok" {
 		t.Fatalf("State = %q, want ok while both copies are present", row.State)
 	}
 
 	if err := os.Remove(filepath.Join(vaultAppDir, ".bashrc")); err != nil {
 		t.Fatal(err)
 	}
-	row := fileDriftRow(home, vaultAppDir, f)
+	row := fileDriftRow(home, vault, "bash", f)
 	if row.State != "vaultMissing" {
 		t.Fatalf("State = %q, want vaultMissing once the backup is gone", row.State)
 	}
@@ -315,6 +315,42 @@ func TestFileDriftRow_ReportsMissingVaultCopy(t *testing.T) {
 	// opposite problem, with the opposite remedy.
 	if row.State == "missing" {
 		t.Fatal("vault-missing must not be reported as source-missing")
+	}
+}
+
+// TestFileDriftRow_RefusesVaultPathEscapingViaSymlink covers the vault side
+// of the same lesson as the tracked-folder walk: containment proved on
+// strings is not containment. Lstat follows every component except the last,
+// so a symlinked directory planted inside the vault would let a file outside
+// it supply the size and existence this row reports as a healthy backup.
+func TestFileDriftRow_RefusesVaultPathEscapingViaSymlink(t *testing.T) {
+	home := t.TempDir()
+	vault := t.TempDir()
+	outside := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("live"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// The decoy outside the vault, with content matching what the manifest
+	// will claim, so a naive check would call this "ok".
+	if err := os.WriteFile(filepath.Join(outside, ".bashrc"), []byte("live"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	size, checksum, backedUpAt, err := vaultFileMeta(filepath.Join(outside, ".bashrc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vaultAppDir := filepath.Join(vault, "bash")
+	if err := os.Symlink(outside, vaultAppDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	row := fileDriftRow(home, vault, "bash", ManifestFile{
+		Path: ".bashrc", Size: size, Checksum: checksum, BackedUpAt: backedUpAt,
+	})
+	if row.State == "ok" {
+		t.Fatal("a vault path resolving outside the vault must never read as a healthy backup")
 	}
 }
 
