@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,6 +186,88 @@ func TestMigrateVault_RefusesSourceInsideDestination(t *testing.T) {
 	}
 	if err := a.CopyVaultTo(parent); err == nil {
 		t.Fatal("a destination that contains the current vault must be refused")
+	}
+}
+
+// TestCheckVaultDir_SeparatesUnreachableFromUnparseable is the regression
+// for a dead end the recovery UI would otherwise have introduced.
+//
+// ProbeVaultPath errors both when the directory can't be read AND when
+// manifest.json exists but won't parse. Driving recovery from that composite
+// would put a hand-edited manifest behind a modal headed "vault not found" —
+// false — that Escape cannot close, and every way out of it that keeps the
+// user's vault would fail: re-probing hits the same parse error, and
+// recreating the folder refuses on it too. The only working button would be
+// the one that abandons the vault. That state is a dismissable message today,
+// so conflating the two would be a strict regression.
+func TestCheckVaultDir_SeparatesUnreachableFromUnparseable(t *testing.T) {
+	a, _, vault := newRestoreFixture(t)
+
+	if status := a.CheckVaultDir(); !status.Reachable || !status.ManifestReadable {
+		t.Fatalf("a healthy vault should be both reachable and readable, got %+v", status)
+	}
+
+	// Corrupt the manifest: the folder is still perfectly reachable.
+	if err := os.WriteFile(manifestPath(vault), []byte("{ not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	status := a.CheckVaultDir()
+	if !status.Reachable {
+		t.Fatal("an unparseable manifest must not make the vault folder read as unreachable — that is what strands the user")
+	}
+	if status.ManifestReadable {
+		t.Fatal("the manifest is corrupt and should be reported as such")
+	}
+	if status.Message == "" {
+		t.Fatal("the corrupt-manifest case needs its own honest message")
+	}
+
+	// Now the folder really is gone — this is the case recovery is for.
+	if err := os.RemoveAll(vault); err != nil {
+		t.Fatal(err)
+	}
+	if status := a.CheckVaultDir(); status.Reachable {
+		t.Fatal("a deleted vault folder must report as unreachable")
+	}
+}
+
+// TestLoadManifest_PreV121ManifestWithoutDirs covers backward compatibility:
+// a manifest written before tracked folders existed must keep working
+// untouched, with no Dirs and no rewrite.
+func TestLoadManifest_PreV121ManifestWithoutDirs(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("live"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f := seedVaultFile(t, vault, "bash", ".bashrc", "live")
+
+	// Written by hand in the v1.2.0 shape — no "dirs" key at all.
+	legacy := `{"version":1,"apps":[{"name":"bash","files":[{"path":".bashrc","size":` +
+		fmt.Sprintf("%d", f.Size) + `,"checksum":"` + f.Checksum + `","backedUpAt":"` + f.BackedUpAt + `"}]}]}`
+	if err := os.WriteFile(manifestPath(vault), []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := loadManifest(vault)
+	if err != nil {
+		t.Fatalf("a pre-v1.2.1 manifest must still load: %v", err)
+	}
+	if len(m.Apps) != 1 || len(m.Apps[0].Files) != 1 {
+		t.Fatalf("legacy manifest was not read faithfully: %+v", m.Apps)
+	}
+	if m.Apps[0].Dirs != nil {
+		t.Fatalf("Dirs should stay nil for a legacy manifest, got %v", m.Apps[0].Dirs)
+	}
+
+	rows, err := a.GetMirrorRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || len(rows[0].Files) != 1 || rows[0].Files[0].State != "ok" {
+		t.Fatalf("legacy manifest should render exactly as before: %+v", rows)
+	}
+	if rows[0].Drifted {
+		t.Fatal("a healthy legacy app must not read as drifted")
 	}
 }
 
