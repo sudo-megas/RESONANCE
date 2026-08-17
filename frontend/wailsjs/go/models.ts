@@ -290,6 +290,7 @@ export namespace main {
 	    updated: string[];
 	    skipped: string[];
 	    missing: string[];
+	    blocked: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateResult(source);
@@ -300,6 +301,7 @@ export namespace main {
 	        this.updated = source["updated"];
 	        this.skipped = source["skipped"];
 	        this.missing = source["missing"];
+	        this.blocked = source["blocked"];
 	    }
 	}
 	export class VaultDirStatus {

@@ -70,13 +70,25 @@ function buildFileList(entries: ConfirmEntry[], showAppName: boolean): HTMLUList
 function summarizeResults(results: main.UpdateResult[]): string {
   let updated = 0;
   let missing = 0;
+  let blocked = 0;
   for (const r of results) {
     updated += r.updated.length;
     missing += r.missing.length;
+    // Older bindings had no `blocked` field; a manifest saved by this build
+    // and read by an older one is the same shape, so tolerate its absence
+    // rather than rendering "undefined".
+    blocked += r.blocked?.length ?? 0;
   }
   const parts: string[] = [];
   if (updated > 0) parts.push(updated === 1 ? "1 file updated" : `${updated} files updated`);
   if (missing > 0) parts.push(missing === 1 ? "1 source missing" : `${missing} sources missing`);
+  if (blocked > 0) {
+    parts.push(
+      blocked === 1
+        ? "1 file couldn't be written — something in the vault points outside it"
+        : `${blocked} files couldn't be written — something in the vault points outside it`,
+    );
+  }
   return parts.length === 0 ? "Already up to date" : parts.join(", ");
 }
 

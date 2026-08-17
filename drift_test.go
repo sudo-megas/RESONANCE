@@ -354,6 +354,59 @@ func TestFileDriftRow_RefusesVaultPathEscapingViaSymlink(t *testing.T) {
 	}
 }
 
+// TestUpdateFromSource_RefusesToWriteThroughVaultSymlink is the write-side
+// twin of the test above, and it exists because closing only the read side
+// would have made things worse, not better: the row now reports vaultDamaged
+// and the UI tells the user Update repairs that, so Update is exactly where
+// the user is sent. copyFileAtomic calls MkdirAll and creates its temp file
+// inside the resulting directory, and neither declines to follow a directory
+// symlink — so without this guard the "repair" writes the backup out of the
+// vault and into whatever the planted link points at. The skip path is just
+// as wrong: it would follow the same link, find a matching file at the far
+// end and report "already identical" on every future refresh, so the damaged
+// row could never converge.
+func TestUpdateFromSource_RefusesToWriteThroughVaultSymlink(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+	outside := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte("live"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f := seedVaultFile(t, vault, "bash", ".bashrc", "live")
+	saveTestManifest(t, vault, "bash", []ManifestFile{f})
+
+	// Replace the app's vault directory with a link out of the vault, the way
+	// whoever last had write access to the drive could.
+	vaultAppDir := filepath.Join(vault, "bash")
+	if err := os.RemoveAll(vaultAppDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, vaultAppDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	result, err := a.UpdateFromSource("bash")
+	if err != nil {
+		t.Fatalf("UpdateFromSource: %v", err)
+	}
+	if len(result.Blocked) != 1 {
+		t.Fatalf("Blocked = %v, want the write refused (Updated = %v, Skipped = %v)",
+			result.Blocked, result.Updated, result.Skipped)
+	}
+	if _, err := os.Lstat(filepath.Join(outside, ".bashrc")); err == nil {
+		t.Fatal("a backup was written outside the vault through a planted directory symlink")
+	}
+	// Nothing may be left behind at the far end either — copyFileAtomic's
+	// temp file lands in the same directory as its destination.
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("wrote %d entries outside the vault: %v", len(entries), entries)
+	}
+}
+
 // TestUpdateFromSource_RestoresMissingVaultCopy pins the other half: a
 // source that still matches its recorded checksum used to short-circuit to
 // "skipped, already identical", which would leave a deleted backup missing

@@ -53,6 +53,13 @@ type UpdateResult struct {
 	Updated []string `json:"updated"` // re-copied
 	Skipped []string `json:"skipped"` // already identical, untouched
 	Missing []string `json:"missing"` // source gone; vault copy left untouched, reported not failed
+	// Blocked is a file whose destination inside the vault is no longer a
+	// place this app is willing to write — a directory symlink standing in
+	// the vault that redirects the write outside it. Deliberately not folded
+	// into Missing: the source is present and fine, and the row's
+	// vaultDamaged badge tells the user Update will repair it, so silently
+	// counting this as "source missing" would be the second lie in a row.
+	Blocked []string `json:"blocked"`
 }
 
 // backfillChecksums fills in checksum/size/backedUpAt for any ManifestFile
@@ -213,19 +220,13 @@ func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
 			fr.State = "vaultDamaged"
 			return fr
 		}
-		// Then containment that actually holds. homeRelative is filepath.Rel
-		// plus a ".." test, so it proves something about a string, not about
-		// the filesystem — and Lstat declines to follow only the final
-		// component, resolving every directory above it. A symlinked
-		// directory planted inside the vault by whoever last had the drive
-		// would otherwise let a file outside the vault supply the size and
-		// existence this row reports as a healthy backup. Measured against
-		// the vault root, since the app directory itself may be the symlink.
-		if resolved, err := filepath.EvalSymlinks(vaultFile); err == nil {
-			if !containsPath(resolveDir(vaultRoot), resolved) {
-				fr.State = "vaultDamaged"
-				return fr
-			}
+		// Then containment that actually holds — see vaultDirEscapes. A
+		// symlinked directory planted inside the vault by whoever last had the
+		// drive would otherwise let a file outside the vault supply the size
+		// and existence this row reports as a healthy backup.
+		if vaultDirEscapes(vaultRoot, vaultFile) {
+			fr.State = "vaultDamaged"
+			return fr
 		}
 		vInfo, err := os.Lstat(vaultFile)
 		switch {
@@ -272,6 +273,55 @@ func vaultCopyIntact(path string, wantSize int64) bool {
 		return false
 	}
 	return wantSize == 0 || info.Size() == wantSize
+}
+
+// vaultDirEscapes reports whether the DIRECTORY chain above vaultFile, once
+// resolved, lands outside the vault.
+//
+// Both the read path (fileDriftRow) and the write path (UpdateFromSource)
+// need this, and neither can get it from filepath.Rel: that compares strings,
+// while Lstat, MkdirAll and os.CreateTemp all decline to follow only the
+// FINAL component and resolve every directory above it. A directory symlink
+// planted inside the vault by whoever last had the drive therefore redirects
+// reads (an outside file supplying the size a row reports as a healthy
+// backup) and writes (copyFileAtomic creating its temp file, and renaming it,
+// outside the vault entirely).
+//
+// The final component is deliberately NOT resolved here, because at that one
+// position both callers are already safe and one of them depends on it: Lstat
+// reports a symlink as a symlink, which fileDriftRow already rejects as
+// vaultDamaged; and copyFileAtomic writes a temp file into the parent and
+// renames over the link, replacing it rather than writing through it — which
+// is how a tampered vault entry gets repaired, and is pinned by
+// TestUpdateFromSource_RefusesToFollowSymlinkAtVaultDestination. Resolving
+// the last component would turn that repair into a refusal.
+//
+// Containment is measured against the vault ROOT, because the app's own
+// subdirectory may be the symlink — compared against itself it would
+// trivially pass.
+func vaultDirEscapes(vaultRoot, vaultFile string) bool {
+	if vaultRoot == "" {
+		return false
+	}
+	root := resolveDir(vaultRoot)
+	// Walk up to the nearest ancestor that actually exists: the directories
+	// below it don't exist yet, so MkdirAll is about to create them inside
+	// whatever this one resolves to, and that is the thing to judge.
+	dir := filepath.Dir(vaultFile)
+	for {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			return !containsPath(root, resolved)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Nothing along the chain exists at all — the vault itself is
+			// gone. Not an escape; the caller's own missing-vault handling
+			// reports that far more accurately than this can.
+			return false
+		}
+		dir = parent
+	}
 }
 
 // expandTrackedDir lists every regular file currently under one tracked
@@ -361,7 +411,7 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	// (rather than leaving the zero value) keeps the frontend's
 	// result.missing.length-style access safe without a null check at every
 	// call site — the same reasoning loadManifest already applies to Apps.
-	result := UpdateResult{Updated: []string{}, Skipped: []string{}, Missing: []string{}}
+	result := UpdateResult{Updated: []string{}, Skipped: []string{}, Missing: []string{}, Blocked: []string{}}
 
 	settings := a.GetSettings()
 	if settings.VaultPath == "" {
@@ -428,6 +478,18 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 			result.Missing = append(result.Missing, f.Path)
 			continue
 		}
+		// The write-side twin of fileDriftRow's check, and it must be here
+		// rather than only there: copyFileAtomic below calls MkdirAll and then
+		// creates its temp file inside that directory, and neither declines to
+		// follow a directory symlink. A planted vault/<app> -> /outside would
+		// otherwise send this backup out of the vault entirely — and the skip
+		// test just below would follow the same symlink, find a matching file
+		// at the far end, and report "already identical" forever, so the
+		// vaultDamaged row the UI says Update will fix could never converge.
+		if vaultDirEscapes(settings.VaultPath, vaultFile) {
+			result.Blocked = append(result.Blocked, f.Path)
+			continue
+		}
 
 		srcInfo, err := os.Stat(sourcePath)
 		if err != nil || !srcInfo.Mode().IsRegular() {
@@ -483,6 +545,9 @@ func summarizeUpdateActivity(result UpdateResult) string {
 	}
 	if n := len(result.Missing); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d source missing", n))
+	}
+	if n := len(result.Blocked); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d blocked by the vault", n))
 	}
 	if len(parts) == 0 {
 		return "no changes"

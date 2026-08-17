@@ -72,6 +72,18 @@ Found by a lifecycle audit of the whole app and approved for this release:
 - **Restore failures said only "1 failed".** The per-file reason was computed, shipped
   across the IPC boundary, and thrown away — at the moment the user most needs it,
   because their files had just been partially overwritten. It is now shown.
+- **Both directions of the same vault-side hole, not just the read one.** Checking the
+  vault's reality (above) is what sends the user to Update to repair a damaged row, so
+  fixing only the read side would have made things worse: `copyFileAtomic` calls
+  `MkdirAll` and creates its temp file in the resulting directory, and neither declines
+  to follow a directory symlink, so the advertised repair would have written the backup
+  out of the vault — and the "already identical" skip would have followed the same link
+  and reported success forever, so the damaged row could never converge. `vaultDirEscapes`
+  now guards read and write alike, resolving the directory chain rather than comparing
+  strings. It deliberately does not resolve the final component: replacing a symlink
+  standing where a file belongs is how a tampered entry gets repaired. `UpdateResult`
+  gains `Blocked`, kept separate from `Missing` — the source is fine, so calling it
+  "source missing" would be a second lie on top of the first.
 
 **Not in this release.** Administrative/polkit vault paths (v1.2.2) and app editing —
 add files, remove files, delete, rename, untrack folders (v1.2.3). v1.2.1's only
