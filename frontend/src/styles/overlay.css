@@ -366,10 +366,11 @@
   /* Right padding, not zero: WebKitGTK's overlay scrollbar is painted over
      the content box rather than beside it, so without this the last few
      characters of every row sit underneath it. The gutter has to exceed the
-     scrollbar's own width (~13px expanded) by enough to read as a gap — at
-     12px the row's remove button cleared it by a single pixel, which looks
-     exactly like a collision. */
-  padding: 0 22px 0 0;
+     scrollbar's own width (~13px expanded) by enough to read as a gap. 12px
+     cleared it by a single pixel and 22px was still tight against the row's
+     remove button, so the gutter is deliberately generous rather than
+     minimal — the scrollbar needs room, not just non-overlap. */
+  padding: 0 34px 0 0;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -966,7 +967,7 @@
 .editapp-remove-list {
   list-style: none;
   margin: 0 0 10px;
-  padding: 0 22px 0 0;
+  padding: 0 34px 0 0;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -1078,7 +1079,7 @@
 .snapshot-list {
   list-style: none;
   margin: 0 0 18px;
-  padding: 0 22px 0 0;
+  padding: 0 34px 0 0;
 }
 .snapshot-row {
   padding: 10px 12px;
@@ -1177,7 +1178,7 @@
 .orphan-list {
   list-style: none;
   margin: 0 0 12px;
-  padding: 8px 26px 8px 10px;
+  padding: 8px 38px 8px 10px;
   max-height: 180px;
   overflow-y: auto;
   border-radius: 6px;
