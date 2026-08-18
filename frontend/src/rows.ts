@@ -35,6 +35,14 @@ export function getDriftedApps(): main.AppRow[] {
   return lastRows.filter((r) => r.drifted);
 }
 
+// The row objects handed to click handlers are captured when the mirror is
+// rendered, so a button pressed a minute later is deciding from a snapshot.
+// Anything that acts on a row re-reads it through this after refreshMirror();
+// undefined means the app is no longer tracked at all.
+export function getRow(name: string): main.AppRow | undefined {
+  return lastRows.find((r) => r.name === name);
+}
+
 // Worst-first. The app-level badge shows the most serious thing wrong with
 // any of its files, so the order here is the editorial judgement about which
 // conditions matter most: a backup that isn't there at all outranks a source
@@ -146,7 +154,7 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   // points left, at the pane it writes to.
   restoreIcon.textContent = "\uf177";
   restoreBtn.appendChild(restoreIcon);
-  restoreBtn.addEventListener("click", () => openRestoreConfirm(row));
+  restoreBtn.addEventListener("click", () => void openRestoreConfirm(row));
   spine.appendChild(restoreBtn);
 
   const badge = driftBadge(rowState(row), () => openDifferences(row));
@@ -164,7 +172,7 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   // moves system -> vault, so the arrow points right.
   updateIcon.textContent = "\uf178";
   updateBtn.appendChild(updateIcon);
-  updateBtn.addEventListener("click", () => openUpdateConfirm(row));
+  updateBtn.addEventListener("click", () => void openUpdateConfirm(row));
   spine.appendChild(updateBtn);
 
   const vault = document.createElement("div");

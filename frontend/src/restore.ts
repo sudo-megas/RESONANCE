@@ -4,7 +4,7 @@ import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
 import { extractErrorMessage, formatSize } from "./util";
 import { formatDateTime } from "./dates";
-import { refreshMirror } from "./rows";
+import { refreshMirror, getRow } from "./rows";
 import { renderDiff } from "./diff";
 import { buildMachineInfoCard } from "./machineinfo";
 
@@ -295,6 +295,22 @@ let restoreConfirmEpoch = 0;
 
 export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   const epoch = ++restoreConfirmEpoch;
+
+  // The row handed in was captured when the mirror was last rendered, which
+  // can be several edits behind what is on disk. Deciding from it is how
+  // "already up to date — nothing to restore" gets said about a file that has
+  // genuinely changed since the last scan. Update All has re-fetched before
+  // deciding for exactly this reason; the per-row buttons never did, and the
+  // asymmetry was invisible until someone edited a tracked file in another
+  // window and asked RESONANCE to put it back.
+  await refreshMirror();
+  if (epoch !== restoreConfirmEpoch) return;
+  const fresh = getRow(row.name);
+  if (!fresh) {
+    showToast(`${row.name} is no longer being tracked`);
+    return;
+  }
+  row = fresh;
 
   let undoInfo: main.UndoInfo | null = null;
   try {
