@@ -495,13 +495,22 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 		return result, err
 	}
 
-	// Undo snapshots are keyed by app name alone, with no record of which
-	// vault or which app instance they came from. Leaving one behind means a
-	// later app that happens to reuse this name inherits it, and the restore
-	// overlay would offer to replay a different app's pre-restore bytes over
-	// live $HOME files. Best-effort and after the vault work: failing to
-	// clear it must not undo a removal that already succeeded.
-	discardUndoSnapshot(name)
+	// The undo snapshot is deliberately NOT discarded here.
+	//
+	// Removing an app is a vault-side operation, and this overlay's headline
+	// promise is that nothing in $HOME changes. A snapshot is the only thing
+	// that can revert a PRIOR change to $HOME, and UndoRestore never reads
+	// the vault — so the snapshot stays exactly as valid and exactly as
+	// useful after its app leaves the vault as it was before. Deleting it
+	// here would be the one genuinely destructive thing this call does to
+	// the user's home folder, done silently, in the name of tidiness.
+	//
+	// The name-reuse hazard that once justified discarding it is handled
+	// properly now: snapshots carry the vault they were taken from, and
+	// GetUndoInfo flags a mismatch as Stale so the offer is labelled rather
+	// than blindly presented. ListUndoSnapshots is what keeps this one
+	// reachable, since after removal it has no app row left to hang off, and
+	// DiscardUndoSnapshot is how the user throws it away on purpose.
 
 	recordActivity("remove", name, summarizeRemoveActivity(result))
 	return result, nil

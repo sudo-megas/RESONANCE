@@ -541,7 +541,7 @@ func TestUndoRestore_RegularEntryClearsSymlinkFirst(t *testing.T) {
 	}
 }
 
-func TestUndoRestore_RevalidatesPathsAndLeavesPartialFailureInPlace(t *testing.T) {
+func TestUndoRestore_RevalidatesPathsAndPrunesAppliedEntriesOnPartialFailure(t *testing.T) {
 	a, home, _ := newRestoreFixture(t)
 	const appName = "testapp"
 
@@ -597,6 +597,17 @@ func TestUndoRestore_RevalidatesPathsAndLeavesPartialFailureInPlace(t *testing.T
 	if !info.Available {
 		t.Fatalf("a partial-failure undo must leave the snapshot in place, got %+v", info)
 	}
+	// Left in place, but shrunk to what still needs applying. Keeping the
+	// applied entry would make the retry re-apply work that already
+	// succeeded — see TestUndoRestore_RetryDoesNotRedoAppliedEntries.
+	if info.FileCount != 1 {
+		t.Fatalf("FileCount = %d, want the succeeded entry pruned out", info.FileCount)
+	}
+	// And the one entry left is unrestorable, so the UI can stop offering it
+	// instead of presenting the same failing undo on every visit.
+	if info.Restorable != 0 {
+		t.Fatalf("Restorable = %d, want 0 — the only entry left can never succeed", info.Restorable)
+	}
 }
 
 func TestGetUndoInfo_NoneAvailable(t *testing.T) {
@@ -607,5 +618,191 @@ func TestGetUndoInfo_NoneAvailable(t *testing.T) {
 	}
 	if info.Available {
 		t.Fatalf("expected no undo info, got %+v", info)
+	}
+}
+
+// --- B6: an undo offer that still means something --------------------------
+
+// TestUndoRestore_RetryDoesNotRedoAppliedEntries is why the snapshot is
+// pruned rather than merely kept. Retrying a partly-failed undo is supposed
+// to be the safe move; replaying an already-applied "absent" entry would
+// delete a file the user recreated in between, which makes the retry the
+// destructive one.
+func TestUndoRestore_RetryDoesNotRedoAppliedEntries(t *testing.T) {
+	a, home, _ := newRestoreFixture(t)
+	const appName = "testapp"
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDir := filepath.Join(root, appName)
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// One entry that succeeds (the file did not exist before the restore, so
+	// undo deletes it) and one that can never succeed.
+	gone := filepath.Join(home, ".created-by-restore")
+	if err := os.WriteFile(gone, []byte("written by the restore"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	snap := RestoreSnapshot{
+		App:       appName,
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries: []SnapshotEntry{
+			{Path: ".created-by-restore", Kind: "absent"},
+			{Path: "../../etc/hostile", Kind: "regular"},
+		},
+	}
+	if err := writeSnapshot(canonicalDir, snap); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.UndoRestore(appName); err != nil {
+		t.Fatalf("UndoRestore: %v", err)
+	}
+	if _, err := os.Lstat(gone); !os.IsNotExist(err) {
+		t.Fatal("the absent-entry undo should have deleted the file")
+	}
+
+	// The user makes the file again, deliberately, then retries the undo to
+	// clear the entry that failed.
+	const recreated = "the user wrote this again on purpose"
+	if err := os.WriteFile(gone, []byte(recreated), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.UndoRestore(appName); err != nil {
+		t.Fatalf("second UndoRestore: %v", err)
+	}
+
+	got, err := os.ReadFile(gone)
+	if err != nil {
+		t.Fatal("retrying the undo deleted a file the user had recreated")
+	}
+	if string(got) != recreated {
+		t.Fatalf("file = %q, want the user's own content untouched", got)
+	}
+}
+
+// TestGetUndoInfo_FlagsSnapshotFromAnotherVault covers the offer that is
+// valid but no longer means what it appears to mean. Snapshots are keyed by
+// app name alone, so a "bash" in a different vault would inherit this one
+// and the overlay would offer to replay a foreign app's bytes over $HOME.
+func TestGetUndoInfo_FlagsSnapshotFromAnotherVault(t *testing.T) {
+	a, _, _ := newRestoreFixture(t)
+	const appName = "testapp"
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDir := filepath.Join(root, appName)
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSnapshot(canonicalDir, RestoreSnapshot{
+		App:       appName,
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries:   []SnapshotEntry{{Path: ".bashrc", Kind: "absent"}},
+		VaultPath: t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := a.GetUndoInfo(appName)
+	if err != nil {
+		t.Fatalf("GetUndoInfo: %v", err)
+	}
+	if !info.Available {
+		t.Fatal("a snapshot from another vault is still a real snapshot")
+	}
+	if !info.Stale {
+		t.Fatal("Stale = false, want the snapshot flagged as taken from a different vault")
+	}
+}
+
+// TestGetUndoInfo_TreatsUnstampedSnapshotAsCurrent pins the compatibility
+// half: every snapshot written before v1.2.2 has no vaultPath, and absent
+// must mean unknown-so-keep-offering, not foreign.
+func TestGetUndoInfo_TreatsUnstampedSnapshotAsCurrent(t *testing.T) {
+	a, _, _ := newRestoreFixture(t)
+	const appName = "testapp"
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDir := filepath.Join(root, appName)
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSnapshot(canonicalDir, RestoreSnapshot{
+		App:       appName,
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries:   []SnapshotEntry{{Path: ".bashrc", Kind: "absent"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := a.GetUndoInfo(appName)
+	if err != nil {
+		t.Fatalf("GetUndoInfo: %v", err)
+	}
+	if info.Stale {
+		t.Fatal("an unstamped pre-v1.2.2 snapshot must not be treated as foreign")
+	}
+	if info.Restorable != 1 {
+		t.Fatalf("Restorable = %d, want 1", info.Restorable)
+	}
+}
+
+// TestGetUndoInfo_ReportsZeroRestorableWhenSnapshotBytesAreGone covers the
+// undo that can never succeed. A "regular" entry replays captured bytes
+// sitting beside snapshot.json; with those gone the offer is permanent and
+// permanently useless, and the user meets it on every visit.
+func TestGetUndoInfo_ReportsZeroRestorableWhenSnapshotBytesAreGone(t *testing.T) {
+	a, _, _ := newRestoreFixture(t)
+	const appName = "testapp"
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDir := filepath.Join(root, appName)
+	if err := os.MkdirAll(canonicalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// snapshot.json written, but the captured file beside it never was.
+	if err := writeSnapshot(canonicalDir, RestoreSnapshot{
+		App:       appName,
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries:   []SnapshotEntry{{Path: ".bashrc", Kind: "regular"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := a.GetUndoInfo(appName)
+	if err != nil {
+		t.Fatalf("GetUndoInfo: %v", err)
+	}
+	if !info.Available || info.FileCount != 1 {
+		t.Fatalf("info = %+v, want the snapshot still reported", info)
+	}
+	if info.Restorable != 0 {
+		t.Fatalf("Restorable = %d, want 0 — the captured bytes are gone", info.Restorable)
+	}
+}
+
+// TestGetUndoInfo_RejectsPathEscape pins the IPC boundary. The frontend only
+// ever passes sanitized manifest names, but the boundary itself must not
+// depend on that.
+func TestGetUndoInfo_RejectsPathEscape(t *testing.T) {
+	a, _, _ := newRestoreFixture(t)
+	if _, err := a.GetUndoInfo("../../etc"); err == nil {
+		t.Fatal("GetUndoInfo accepted a path-escaping app name")
+	}
+	if _, err := a.UndoRestore("../../etc"); err == nil {
+		t.Fatal("UndoRestore accepted a path-escaping app name")
 	}
 }

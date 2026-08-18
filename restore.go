@@ -259,6 +259,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			App:       name,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			Entries:   entries,
+			VaultPath: settings.VaultPath,
 		}
 		if err := commitSnapshot(pendingUndoDir, canonicalUndoDir, snap); err != nil {
 			// The prior state couldn't be durably saved, so none of these

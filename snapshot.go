@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -27,6 +29,17 @@ type RestoreSnapshot struct {
 	App       string          `json:"app"`
 	CreatedAt string          `json:"createdAt"`
 	Entries   []SnapshotEntry `json:"entries"`
+
+	// VaultPath is the vault this restore pulled from, recorded so undo can
+	// tell whether it still relates to the vault the user is looking at.
+	// Snapshots are keyed by app name and nothing else, so without it an app
+	// named "bash" in a different vault inherits the offer to replay another
+	// vault's pre-restore bytes over live $HOME files.
+	//
+	// Additive, on the same footing as ManifestFile's Size and Checksum:
+	// absent on every snapshot written before v1.2.2, and absent means
+	// UNKNOWN — keep offering. The next restore stamps it.
+	VaultPath string `json:"vaultPath,omitempty"`
 }
 
 // UndoInfo is the trimmed, IPC-safe summary of whether an app has an undo
@@ -35,6 +48,21 @@ type UndoInfo struct {
 	Available bool   `json:"available"`
 	CreatedAt string `json:"createdAt"`
 	FileCount int    `json:"fileCount"`
+
+	// Restorable is how many entries would actually succeed if undo ran now,
+	// established by a dry run that writes nothing. A count rather than a
+	// boolean because UndoRestore is per-entry-independent: a single damaged
+	// entry must not suppress an offer that would put the other nine back.
+	// "This undo can never succeed" is Restorable == 0.
+	Restorable int `json:"restorable"`
+
+	// Stale marks a snapshot taken from a different vault than the one
+	// currently configured. Not corruption — it replays a genuinely valid
+	// earlier state of $HOME — but the offer's implied claim that it relates
+	// to THIS vault's app of that name is false, so the UI labels it rather
+	// than hiding it.
+	Stale     bool   `json:"stale"`
+	VaultPath string `json:"vaultPath"`
 }
 
 // UndoResult reports what UndoRestore actually did, file by file — the
@@ -205,6 +233,12 @@ func commitSnapshot(pendingDir, canonicalDir string, snap RestoreSnapshot) error
 // restore-confirm overlay to check before falling back to its "nothing to
 // restore" toast.
 func (a *App) GetUndoInfo(appName string) (UndoInfo, error) {
+	// appName arrives over IPC and is joined straight onto the undo root
+	// below. The frontend only ever sources it from sanitized manifest rows,
+	// but nothing about the IPC boundary enforces that.
+	if err := validAppName(appName); err != nil {
+		return UndoInfo{}, err
+	}
 	root, err := undoRootDir()
 	if err != nil {
 		return UndoInfo{}, err
@@ -213,7 +247,60 @@ func (a *App) GetUndoInfo(appName string) (UndoInfo, error) {
 	if !ok {
 		return UndoInfo{}, nil
 	}
-	return UndoInfo{Available: true, CreatedAt: snap.CreatedAt, FileCount: len(snap.Entries)}, nil
+
+	info := UndoInfo{
+		Available: true,
+		CreatedAt: snap.CreatedAt,
+		FileCount: len(snap.Entries),
+		VaultPath: snap.VaultPath,
+	}
+
+	// An empty VaultPath is a pre-v1.2.2 snapshot: unknown, not foreign, so
+	// it keeps being offered exactly as it was before this field existed.
+	if snap.VaultPath != "" {
+		if current := a.GetSettings().VaultPath; current != "" {
+			info.Stale = resolveDir(snap.VaultPath) != resolveDir(current)
+		}
+	}
+
+	info.Restorable = countRestorableEntries(snap, filepath.Join(root, appName))
+	return info, nil
+}
+
+// countRestorableEntries dry-runs a snapshot: how many of its entries would
+// succeed if undo ran right now. It writes nothing and mirrors UndoRestore's
+// own per-entry checks, so the two cannot disagree about what is possible.
+//
+// This exists because an undo whose backing bytes are gone was offered
+// forever with no way to tell and no way to clear it — the user meets the
+// same failing offer on every visit.
+func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, entry := range snap.Entries {
+		destPath := filepath.Join(home, filepath.FromSlash(entry.Path))
+		if _, err := homeRelative(destPath, home); err != nil {
+			continue
+		}
+		switch entry.Kind {
+		case "absent", "symlink":
+			// Nothing on disk backs these — the entry itself carries
+			// everything undo needs.
+			n++
+		case "regular":
+			// This one has captured bytes sitting beside snapshot.json, and
+			// they are what a partially-deleted state directory loses first.
+			backing := filepath.Join(canonicalDir, filepath.FromSlash(entry.Path))
+			if info, err := os.Lstat(backing); err == nil && info.Mode().IsRegular() {
+				n++
+			}
+		}
+		// An unrecognised Kind counts as unrestorable: UndoRestore fails it.
+	}
+	return n
 }
 
 // UndoRestore replays appName's snapshot back onto the live system,
@@ -224,6 +311,9 @@ func (a *App) GetUndoInfo(appName string) (UndoInfo, error) {
 func (a *App) UndoRestore(appName string) (UndoResult, error) {
 	result := UndoResult{Restored: []string{}, Failed: []RestoreFailure{}}
 
+	if err := validAppName(appName); err != nil {
+		return result, err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return result, err
@@ -277,10 +367,194 @@ func (a *App) UndoRestore(appName string) (UndoResult, error) {
 
 	if allSucceeded {
 		_ = os.RemoveAll(canonicalDir)
+	} else if len(result.Restored) > 0 {
+		// Keep the snapshot, but only the entries that still need applying.
+		// Leaving it whole means a retry re-applies everything that already
+		// succeeded: an "absent" entry deletes a file the user has since
+		// recreated, and a "regular" entry clobbers edits made after the
+		// first undo. The retry is meant to be the safe move, so it has to
+		// actually be one.
+		pruneSnapshotEntries(canonicalDir, snap, result.Restored)
 	}
 
 	recordActivity("undo", appName, summarizeUndoActivity(result))
 	return result, nil
+}
+
+// pruneSnapshotEntries rewrites a snapshot to hold only the entries that
+// have not been applied yet.
+//
+// writeFileAtomic rather than writeSnapshot's plain WriteFile: a crash
+// midway through this rewrite would leave snapshot.json truncated, and
+// readSnapshot reports unparseable JSON as "no snapshot at all" — so a
+// non-atomic write here could destroy an undo that was merely incomplete.
+//
+// Best-effort. Failing to shrink the snapshot leaves the pre-existing
+// behaviour (a retry that redoes applied work), which is worse than the
+// pruned version but better than reporting an undo that did happen as
+// having failed.
+func pruneSnapshotEntries(canonicalDir string, snap RestoreSnapshot, applied []string) {
+	done := make(map[string]bool, len(applied))
+	for _, p := range applied {
+		done[p] = true
+	}
+	kept := make([]SnapshotEntry, 0, len(snap.Entries))
+	for _, e := range snap.Entries {
+		if !done[e.Path] {
+			kept = append(kept, e)
+		}
+	}
+	snap.Entries = kept
+
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = writeFileAtomic(canonicalDir, filepath.Join(canonicalDir, snapshotFileName), data, 0644)
+}
+
+// SnapshotInfo is one pending undo snapshot as the management list sees it.
+//
+// Until v1.2.2 snapshots were invisible storage: nothing listed them, nothing
+// reported their size, and nothing but `rm` could clear one. A partly-failed
+// undo keeps its snapshot by design, so the same failing offer reappeared on
+// every visit with no way out from inside the app.
+type SnapshotInfo struct {
+	App        string `json:"app"`
+	CreatedAt  string `json:"createdAt"`
+	FileCount  int    `json:"fileCount"`
+	Restorable int    `json:"restorable"`
+	Bytes      int64  `json:"bytes"`
+	Stale      bool   `json:"stale"`
+	VaultPath  string `json:"vaultPath"`
+
+	// Orphaned marks a snapshot whose app is not in the current vault —
+	// removed, renamed, or simply a different vault's app list. It stays
+	// fully usable: UndoRestore never reads the vault, so the snapshot
+	// describes a $HOME state that is still exactly as recoverable as it was.
+	Orphaned bool `json:"orphaned"`
+}
+
+// ListUndoSnapshots reports every pending undo snapshot on this machine.
+//
+// Read-only, deliberately. A snapshot parked at <app>.stale is reported by
+// reading through to it, but never reinstated here — commitSnapshot's
+// recovery path is the only thing entitled to move a .stale directory back,
+// and a listing call racing it would be a genuinely hard bug to find.
+func (a *App) ListUndoSnapshots() ([]SnapshotInfo, error) {
+	out := []SnapshotInfo{}
+
+	root, err := undoRootDir()
+	if err != nil {
+		return out, err
+	}
+	dirEntries, err := os.ReadDir(root)
+	if err != nil {
+		// No undo directory yet is the normal state before the first
+		// restore, not a failure worth surfacing.
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return out, err
+	}
+
+	// Collapse <app>, <app>.pending and <app>.stale onto one row per app.
+	names := make([]string, 0, len(dirEntries))
+	seen := make(map[string]bool, len(dirEntries))
+	for _, e := range dirEntries {
+		if !e.IsDir() {
+			continue
+		}
+		name := strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".pending"), ".stale")
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	// Which apps the current vault knows about. A vault that can't be read
+	// right now (drive unplugged) leaves this nil, and nothing is claimed to
+	// be orphaned on the strength of a missing drive.
+	var known map[string]bool
+	currentVault := a.GetSettings().VaultPath
+	if currentVault != "" {
+		if m, err := loadManifest(currentVault); err == nil {
+			known = make(map[string]bool, len(m.Apps))
+			for _, app := range m.Apps {
+				known[app.Name] = true
+			}
+		}
+	}
+
+	for _, name := range names {
+		dir := filepath.Join(root, name)
+		snap, ok := readSnapshot(dir)
+		if !ok {
+			dir = filepath.Join(root, name+".stale")
+			if snap, ok = readSnapshot(dir); !ok {
+				continue
+			}
+		}
+
+		info := SnapshotInfo{
+			App:        name,
+			CreatedAt:  snap.CreatedAt,
+			FileCount:  len(snap.Entries),
+			Restorable: countRestorableEntries(snap, dir),
+			Bytes:      dirSizeBytes(dir),
+			VaultPath:  snap.VaultPath,
+		}
+		if snap.VaultPath != "" && currentVault != "" {
+			info.Stale = resolveDir(snap.VaultPath) != resolveDir(currentVault)
+		}
+		if known != nil {
+			info.Orphaned = !known[name]
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// DiscardUndoSnapshot deletes one app's undo snapshot for good.
+//
+// This is the only exit from a snapshot that can never be applied, so it
+// clears all three of <app>, <app>.pending and <app>.stale together — unlike
+// every other path here, which is careful to leave .stale alone. The user
+// asked for this one explicitly.
+func (a *App) DiscardUndoSnapshot(appName string) error {
+	if err := validAppName(appName); err != nil {
+		return err
+	}
+	root, err := undoRootDir()
+	if err != nil {
+		return err
+	}
+	for _, suffix := range []string{"", ".pending", ".stale"} {
+		if err := os.RemoveAll(filepath.Join(root, appName+suffix)); err != nil {
+			return err
+		}
+	}
+	recordActivity("edit", appName, "Discarded the pending undo snapshot")
+	return nil
+}
+
+// dirSizeBytes sums the regular files under dir. Best-effort: a snapshot
+// whose size can't be totalled is still worth listing, so an unreadable
+// subtree contributes what it can rather than failing the whole call.
+func dirSizeBytes(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }
 
 // summarizeUndoActivity turns UndoResult's counts into a short
@@ -298,21 +572,6 @@ func summarizeUndoActivity(result UndoResult) string {
 		return "no changes"
 	}
 	return strings.Join(parts, ", ")
-}
-
-// discardUndoSnapshot removes appName's undo snapshot, including any pending
-// directory abandoned by an interrupted capture.
-//
-// Best-effort on purpose. It runs after an app removal has already committed
-// its vault work, and a snapshot directory that refuses to go must not turn a
-// removal that genuinely succeeded into a reported failure.
-func discardUndoSnapshot(appName string) {
-	root, err := undoRootDir()
-	if err != nil {
-		return
-	}
-	_ = os.RemoveAll(filepath.Join(root, appName))
-	_ = os.RemoveAll(filepath.Join(root, appName+".pending"))
 }
 
 // renameUndoSnapshot moves an undo snapshot so it follows a renamed app.
@@ -333,9 +592,22 @@ func renameUndoSnapshot(oldName, newName string) {
 	}
 	newDir := filepath.Join(root, newName)
 	// Anything already sitting under the new name belongs to a different app
-	// instance. Adopting it would be the exact confusion this function exists
-	// to prevent, so it is discarded rather than kept.
-	_ = os.RemoveAll(newDir)
+	// instance, and adopting it would be the exact confusion this function
+	// exists to prevent. Neither is it destroyed: it is a real record of a
+	// real change to $HOME, and deleting one to tidy up a rename is not a
+	// trade this app gets to make on the user's behalf.
+	//
+	// So on a collision the move is simply declined. Both snapshots survive,
+	// ListUndoSnapshots shows them (the stranded one marked Orphaned, since
+	// no app answers to the old name any more), and the user decides which
+	// to keep.
+	if _, err := os.Lstat(newDir); err == nil {
+		return
+	}
 	_ = os.Rename(oldDir, newDir)
 	_ = os.RemoveAll(filepath.Join(root, oldName+".pending"))
+	// commitSnapshot parks a superseded snapshot at <app>.stale while it
+	// swaps in the new one. A rename landing between those two steps would
+	// otherwise strand the only surviving copy under the old name.
+	_ = os.Rename(filepath.Join(root, oldName+".stale"), filepath.Join(root, newName+".stale"))
 }

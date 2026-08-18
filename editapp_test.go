@@ -315,13 +315,22 @@ func TestRemoveApp_DeletesVaultSubtreeAndFreesName(t *testing.T) {
 	}
 }
 
-// TestRemoveApp_ClearsUndoSnapshot guards the stale-snapshot hazard:
-// snapshots are keyed by app name alone, so one left behind would be
-// inherited by any future app reusing the name and offered for replay over
-// that app's live files.
-func TestRemoveApp_ClearsUndoSnapshot(t *testing.T) {
-	a, _, vault := newRestoreFixture(t)
-	f := seedVaultFile(t, vault, "bash", ".bashrc", "vault")
+// TestRemoveApp_KeepsUndoSnapshot pins a deliberate reversal.
+//
+// RemoveApp used to discard the app's undo snapshot, to stop a later app
+// reusing the name from inheriting it. That defence now lives where it
+// belongs — snapshots record the vault they came from and GetUndoInfo flags
+// a mismatch as Stale — which leaves the discard doing nothing but harm.
+//
+// A snapshot is the only artifact that can revert a prior change to $HOME,
+// and UndoRestore never reads the vault, so it stays exactly as valid after
+// its app leaves the vault. Deleting it during a vault-side operation whose
+// headline promise is "nothing in your home folder changes" would be the one
+// genuinely destructive thing that operation does.
+func TestRemoveApp_KeepsUndoSnapshot(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+
+	f := seedVaultFile(t, vault, "bash", ".bashrc", "backup")
 	saveTestManifest(t, vault, "bash", []ManifestFile{f})
 
 	root, err := undoRootDir()
@@ -332,40 +341,95 @@ func TestRemoveApp_ClearsUndoSnapshot(t *testing.T) {
 	if err := os.MkdirAll(snapDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(RestoreSnapshot{
+	if err := writeSnapshot(snapDir, RestoreSnapshot{
 		App:       "bash",
-		CreatedAt: "2026-01-01T00:00:00Z",
-		Entries:   []SnapshotEntry{{Path: ".bashrc"}},
-	})
-	if err != nil {
+		CreatedAt: "2020-01-01T00:00:00Z",
+		Entries:   []SnapshotEntry{{Path: ".bashrc", Kind: "absent"}},
+		VaultPath: vault,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(snapDir, snapshotFileName), data, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	info, err := a.GetUndoInfo("bash")
-	if err != nil || !info.Available {
-		t.Fatalf("precondition: snapshot should be visible, got %+v err %v", info, err)
-	}
+	_ = home
 
 	if _, err := a.RemoveApp("bash"); err != nil {
 		t.Fatalf("RemoveApp: %v", err)
 	}
-	after, err := a.GetUndoInfo("bash")
+
+	info, err := a.GetUndoInfo("bash")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("GetUndoInfo: %v", err)
 	}
-	if after.Available {
-		t.Fatal("a removed app's undo snapshot must not survive to be inherited by a new app of the same name")
+	if !info.Available {
+		t.Fatal("removing an app destroyed the only thing that could undo a prior restore of it")
+	}
+
+	// And it is reachable from the management list, which is the only place
+	// left to reach it from once the app row is gone.
+	snaps, err := a.ListUndoSnapshots()
+	if err != nil {
+		t.Fatalf("ListUndoSnapshots: %v", err)
+	}
+	if len(snaps) != 1 || snaps[0].App != "bash" {
+		t.Fatalf("ListUndoSnapshots = %+v, want the orphaned snapshot listed", snaps)
+	}
+	if !snaps[0].Orphaned {
+		t.Fatal("a snapshot whose app is no longer in the vault should be marked orphaned")
+	}
+
+	// Discarding is then an explicit act, not a side effect.
+	if err := a.DiscardUndoSnapshot("bash"); err != nil {
+		t.Fatalf("DiscardUndoSnapshot: %v", err)
+	}
+	if info, err := a.GetUndoInfo("bash"); err != nil || info.Available {
+		t.Fatalf("snapshot survived an explicit discard: %+v (err %v)", info, err)
 	}
 }
 
-// --- RenameApp ---------------------------------------------------------
+// TestRenameApp_DoesNotDestroyACollidingSnapshot covers the other half: a
+// rename onto a name that already has a snapshot declines the move rather
+// than overwriting. Both are real records of real changes to $HOME.
+func TestRenameApp_DoesNotDestroyACollidingSnapshot(t *testing.T) {
+	a, _, vault := newRestoreFixture(t)
 
-// TestRenameApp_MovesVaultFolderAndSnapshot — a rename that left the
-// snapshot behind would strand it under a name nothing points at, waiting
-// for the next app to take that name.
+	f := seedVaultFile(t, vault, "bash", ".bashrc", "backup")
+	saveTestManifest(t, vault, "bash", []ManifestFile{f})
+
+	root, err := undoRootDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"bash", "shell"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeSnapshot(dir, RestoreSnapshot{
+			App:       name,
+			CreatedAt: "2020-01-01T00:00:00Z",
+			Entries:   []SnapshotEntry{{Path: "." + name + "rc", Kind: "absent"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := a.RenameApp("bash", "shell"); err != nil {
+		t.Fatalf("RenameApp: %v", err)
+	}
+
+	// The snapshot that was already under "shell" is untouched.
+	snap, ok := readSnapshot(filepath.Join(root, "shell"))
+	if !ok {
+		t.Fatal("the colliding snapshot was destroyed by a rename")
+	}
+	if snap.App != "shell" {
+		t.Fatalf("snapshot under shell = %q, want the pre-existing one kept", snap.App)
+	}
+	// And the moved-from one still exists rather than being silently lost.
+	if _, ok := readSnapshot(filepath.Join(root, "bash")); !ok {
+		t.Fatal("the renamed app's snapshot was discarded instead of left in place")
+	}
+}
+
 func TestRenameApp_MovesVaultFolderAndSnapshot(t *testing.T) {
 	a, _, vault := newRestoreFixture(t)
 	f := seedVaultFile(t, vault, "bash", ".bashrc", "vault")
