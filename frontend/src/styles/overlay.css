@@ -597,6 +597,17 @@
   color: var(--text-dim);
 }
 
+/* The sentence warning that a password dialog is coming. Accented rather
+   than dimmed: it is the one line here the user has to have read before the
+   prompt appears, and a dimmed line beside a dimmed summary reads as more of
+   the same. */
+.restore-preview-admin-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+
 .restore-preview-undo-link {
   display: inline-block;
   margin: 0 0 12px;

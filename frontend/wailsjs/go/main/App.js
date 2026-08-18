@@ -133,3 +133,7 @@ export function UpdateFromSource(arg1) {
 export function UseVaultPath(arg1) {
   return window['go']['main']['App']['UseVaultPath'](arg1);
 }
+
+export function UseVaultPathWithAdmin(arg1) {
+  return window['go']['main']['App']['UseVaultPathWithAdmin'](arg1);
+}

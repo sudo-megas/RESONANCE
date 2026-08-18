@@ -105,13 +105,28 @@ export async function openAddApp(): Promise<void> {
     }
     try {
       const p = await PreviewPaths(paths);
-      if (p.folderCount === 0) {
-        previewEl.textContent = "";
-        return;
+      const lines: string[] = [];
+
+      if (p.folderCount > 0) {
+        const files = p.fileCount === 1 ? "1 file" : `${p.fileCount.toLocaleString()} files`;
+        const dirs = p.folderCount === 1 ? "1 folder" : `${p.folderCount} folders`;
+        lines.push(
+          `${files} from ${dirs} — the folders stay tracked, so anything added to them later is picked up too.`,
+        );
       }
-      const files = p.fileCount === 1 ? "1 file" : `${p.fileCount.toLocaleString()} files`;
-      const dirs = p.folderCount === 1 ? "1 folder" : `${p.folderCount} folders`;
-      previewEl.textContent = `${files} from ${dirs} — the folders stay tracked, so anything added to them later is picked up too.`;
+      // Said while choosing rather than at the first restore. Backing these up
+      // needs nothing at all; putting them back is the one operation RESONANCE
+      // cannot do as you, and that is worth knowing before the add, not after.
+      if (p.systemFileCount > 0) {
+        const n =
+          p.systemFileCount === 1
+            ? "1 of these files lives"
+            : `${p.systemFileCount.toLocaleString()} of these files live`;
+        lines.push(
+          `${n} in /etc or /usr. Backing them up needs nothing, but putting them back asks for administrator rights.`,
+        );
+      }
+      previewEl.textContent = lines.join(" ");
     } catch {
       previewEl.textContent = "";
     }

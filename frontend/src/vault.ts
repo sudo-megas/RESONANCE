@@ -7,6 +7,7 @@ import {
   CopyVaultTo,
   MoveVaultTo,
   UseVaultPath,
+  UseVaultPathWithAdmin,
   CheckVaultDir,
 } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
@@ -235,18 +236,23 @@ export async function openChangePath(): Promise<void> {
   heading.textContent = "Change Path";
   content.appendChild(heading);
 
+  // Action first, results below. The button used to sit underneath the area
+  // its own result fills, so the overlay read backwards: you looked at an
+  // empty space, then found the thing that populates it beneath. Choosing a
+  // folder is the one thing this overlay is for, so it comes first, and
+  // everything the choice produces appears under it in the order it happens.
+  const chooseBtn = document.createElement("button");
+  chooseBtn.type = "button";
+  chooseBtn.className = "vault-prompt-choose-btn";
+  chooseBtn.textContent = "Choose New Folder";
+  content.appendChild(chooseBtn);
+
   const status = document.createElement("p");
   status.className = "vault-prompt-status";
   content.appendChild(status);
 
   let decisionArea = buildDecisionArea();
   content.appendChild(decisionArea);
-
-  const chooseBtn = document.createElement("button");
-  chooseBtn.type = "button";
-  chooseBtn.className = "vault-prompt-choose-btn";
-  chooseBtn.textContent = "Choose New Folder";
-  content.appendChild(chooseBtn);
 
   async function finish(): Promise<void> {
     const settings = await GetSettings();
@@ -260,7 +266,7 @@ export async function openChangePath(): Promise<void> {
     status.textContent = "";
     decisionArea.remove();
     decisionArea = buildDecisionArea();
-    content.insertBefore(decisionArea, chooseBtn);
+    content.appendChild(decisionArea);
 
     try {
       const newPath = await ChooseVaultPath();
@@ -278,6 +284,18 @@ export async function openChangePath(): Promise<void> {
 
       const probe = await ProbeVaultPath(newPath);
 
+      // A folder that belongs to root is usable — reading it needs nothing,
+      // and writes go through the helper — but it is worth saying before the
+      // password dialog appears rather than after. Said once, here, so every
+      // button below inherits the explanation instead of repeating it.
+      if (probe.needsAdmin) {
+        const note = document.createElement("p");
+        note.className = "vault-decision-note";
+        note.textContent =
+          "This folder belongs to root. RESONANCE can use it, but it will ask for administrator rights once per session before writing anything there.";
+        decisionArea.appendChild(note);
+      }
+
       if (probe.hasManifest) {
         const count = probe.appCount === 1 ? "1 app" : `${probe.appCount} apps`;
         const msg = document.createElement("p");
@@ -288,7 +306,11 @@ export async function openChangePath(): Promise<void> {
         useBtn.addEventListener("click", async () => {
           useBtn.disabled = true;
           try {
-            await AdoptVaultPath(newPath);
+            // Adopting a root-owned vault is the same decision plus the
+            // rights to write in it; the frontend already knows this folder
+            // holds a manifest, which is the only thing AdoptVaultPath checks
+            // that the admin route does not.
+            await (probe.needsAdmin ? UseVaultPathWithAdmin(newPath) : AdoptVaultPath(newPath));
             await finish();
           } catch (err) {
             status.textContent = extractErrorMessage(err);
@@ -326,6 +348,16 @@ export async function openChangePath(): Promise<void> {
         if (!probe.isEmpty) {
           moveBtn.disabled = true;
           moveBtn.title = "Move isn't offered into a folder that already has files — use Copy";
+        }
+        // Copy and Move both build the new vault by writing a whole tree into
+        // it, and that is the one thing a root-owned destination doesn't get.
+        // Pointing RESONANCE at it works, so that is what stays offered.
+        if (probe.needsAdmin) {
+          copyBtn.disabled = true;
+          moveBtn.disabled = true;
+          const why = "Copying a vault into a folder that belongs to root isn't offered — use \"Just use this folder\" instead";
+          copyBtn.title = why;
+          moveBtn.title = why;
         }
 
         async function runMigration(fn: (path: string) => Promise<void>, btn: HTMLButtonElement): Promise<void> {
@@ -373,7 +405,7 @@ export async function openChangePath(): Promise<void> {
         freshBtn.addEventListener("click", async () => {
           freshBtn.disabled = true;
           try {
-            await UseVaultPath(newPath);
+            await (probe.needsAdmin ? UseVaultPathWithAdmin(newPath) : UseVaultPath(newPath));
             await finish();
           } catch (err) {
             status.textContent = extractErrorMessage(err);

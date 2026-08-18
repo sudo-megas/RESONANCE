@@ -403,6 +403,21 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
     content.appendChild(undoLink);
   }
 
+  // Say it before the password dialog appears, not after. A restore that
+  // touches /etc or /usr will raise one, and a prompt arriving unannounced in
+  // the middle of an operation is the kind of thing people cancel out of
+  // reflex — which then leaves the restore half-done for no good reason.
+  const systemCount = [...newFiles, ...overwriteFiles].filter((f) => f.system).length;
+  if (systemCount > 0) {
+    const note = document.createElement("p");
+    note.className = "restore-preview-admin-note";
+    note.textContent =
+      systemCount === 1
+        ? "1 of these files lives in /etc or /usr, so RESONANCE will ask for administrator rights before putting it back."
+        : `${systemCount.toLocaleString()} of these files live in /etc or /usr, so RESONANCE will ask for administrator rights before putting them back.`;
+    content.appendChild(note);
+  }
+
   const list = document.createElement("ul");
   list.className = "restore-preview-list";
   for (const f of newFiles) list.appendChild(buildPreviewRow(row.name, f, "new"));

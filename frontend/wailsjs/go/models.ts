@@ -21,6 +21,7 @@ export namespace main {
 	export class TrackedDir {
 	    path: string;
 	    fileCount: number;
+	    system: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TrackedDir(source);
@@ -30,6 +31,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.fileCount = source["fileCount"];
+	        this.system = source["system"];
 	    }
 	}
 	export class AppComposition {
@@ -68,6 +70,7 @@ export namespace main {
 	}
 	export class FileRow {
 	    path: string;
+	    system: boolean;
 	    state: string;
 	    sourceModified: string;
 	    vaultModified: string;
@@ -80,6 +83,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
+	        this.system = source["system"];
 	        this.state = source["state"];
 	        this.sourceModified = source["sourceModified"];
 	        this.vaultModified = source["vaultModified"];
@@ -210,6 +214,8 @@ export namespace main {
 	    fileCount: number;
 	    folderCount: number;
 	    folders: string[];
+	    systemFolderCount: number;
+	    systemFileCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PathPreview(source);
@@ -220,6 +226,8 @@ export namespace main {
 	        this.fileCount = source["fileCount"];
 	        this.folderCount = source["folderCount"];
 	        this.folders = source["folders"];
+	        this.systemFolderCount = source["systemFolderCount"];
+	        this.systemFileCount = source["systemFileCount"];
 	    }
 	}
 	export class RestoreFailure {
@@ -461,6 +469,7 @@ export namespace main {
 	    isEmpty: boolean;
 	    appCount: number;
 	    entryCount: number;
+	    needsAdmin: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new VaultProbe(source);
@@ -472,6 +481,7 @@ export namespace main {
 	        this.isEmpty = source["isEmpty"];
 	        this.appCount = source["appCount"];
 	        this.entryCount = source["entryCount"];
+	        this.needsAdmin = source["needsAdmin"];
 	    }
 	}
 

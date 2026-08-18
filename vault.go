@@ -98,6 +98,13 @@ type PathPreview struct {
 	// backed up freely but only put back with administrator rights — which is
 	// a thing to learn while choosing, not at the first restore.
 	SystemFolderCount int `json:"systemFolderCount"`
+
+	// SystemFileCount is how many of the files this selection would add live
+	// under /etc or /usr, counting the ones a tracked system folder pulls in.
+	// Folders alone would not answer the question the overlay has to answer:
+	// picking a single file out of /etc adds no folder at all, and it still
+	// cannot be put back without administrator rights.
+	SystemFileCount int `json:"systemFileCount"`
 }
 
 // PreviewPaths counts what AddApp would take on, using the same expansion
@@ -125,6 +132,9 @@ func (a *App) PreviewPaths(absPaths []string) (PathPreview, error) {
 			if !seen[stored] {
 				seen[stored] = true
 				preview.FileCount++
+				if scope == scopeSystem {
+					preview.SystemFileCount++
+				}
 			}
 			continue
 		}
@@ -137,6 +147,9 @@ func (a *App) PreviewPaths(absPaths []string) (PathPreview, error) {
 			if !seen[f] {
 				seen[f] = true
 				preview.FileCount++
+				if scope == scopeSystem {
+					preview.SystemFileCount++
+				}
 			}
 		}
 	}
