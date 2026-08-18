@@ -2,7 +2,7 @@ import { main } from "../wailsjs/go/models";
 import { GetDiffPair } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { renderDiff } from "./diff";
-import { formatDate, formatLastUpdated } from "./dates";
+import { formatDateTimeExact } from "./dates";
 import { extractErrorMessage, formatSize } from "./util";
 
 // The per-app differences view: "you say something changed — show me what."
@@ -72,6 +72,117 @@ function buildDiffContent(pair: main.DiffPair): HTMLElement {
   return wrap;
 }
 
+// One side of the comparison. Label, timestamp, size, in the same order on
+// both sides so the eye compares down a column instead of hunting across a
+// sentence.
+function buildSide(
+  kind: "source" | "vault",
+  label: string,
+  when: string,
+  size: number,
+  absent: string,
+): HTMLElement {
+  const side = document.createElement("div");
+  side.className = `differences-side differences-side--${kind}`;
+
+  const name = document.createElement("span");
+  name.className = "differences-side-label";
+  name.textContent = label;
+  side.appendChild(name);
+
+  if (absent) {
+    const gone = document.createElement("span");
+    gone.className = "differences-side-absent";
+    gone.textContent = absent;
+    side.appendChild(gone);
+    return side;
+  }
+
+  const time = document.createElement("span");
+  time.className = "differences-side-time";
+  // Seconds, not the minutes formatDateTime gives and emphatically not the
+  // days formatDate gave. A file is usually edited the same day it was backed
+  // up, so at day granularity both sides printed "18 08 2026" and the view
+  // whose whole job is "which of these is newer" answered nothing. Minutes
+  // move the same failure one level down: a file edited twenty seconds after
+  // its backup prints an identical HH:MM on both sides, with a "newer" marker
+  // beside two strings that look the same.
+  time.textContent = formatDateTimeExact(when);
+  side.appendChild(time);
+
+  const bytes = document.createElement("span");
+  bytes.className = "differences-side-size";
+  bytes.textContent = size > 0 ? formatSize(size) : "—";
+  side.appendChild(bytes);
+
+  return side;
+}
+
+// The comparison block: what the live file is, against what the vault holds.
+//
+// Left is the live file and right is the vault, the same direction the mirror
+// itself uses, so this overlay does not teach a second grammar. It says SOURCE
+// where the pane says SYSTEM: the panes name two places on your machine, while
+// this names two versions of one file, and "source" is already the word the
+// update button uses.
+function buildCompare(file: main.FileRow): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "differences-compare";
+
+  const sourceAbsent = file.state === "missing" ? "file is gone" : "";
+  let vaultAbsent = "";
+  if (file.state === "untracked") {
+    vaultAbsent = "not backed up yet";
+  } else if (file.state === "vaultMissing") {
+    vaultAbsent = "copy missing";
+  } else if (file.state === "vaultDamaged") {
+    // Deliberately not the recorded date and size. Those describe the backup
+    // that was taken; the file sitting there now is not that file, and
+    // printing its supposed size beside a live one would be this view stating
+    // something it knows to be untrue.
+    vaultAbsent = "doesn't match what was recorded";
+  }
+
+  const source = buildSide(
+    "source",
+    "SOURCE — live",
+    file.sourceModified,
+    file.sourceSize,
+    sourceAbsent,
+  );
+  const vault = buildSide(
+    "vault",
+    "VAULT — backup",
+    file.vaultModified,
+    file.size,
+    vaultAbsent,
+  );
+  wrap.appendChild(source);
+  wrap.appendChild(vault);
+
+  // Which one is newer, said outright rather than left to be worked out by
+  // comparing two strings.
+  //
+  // Only for a drifted file. An in-sync file's backup is taken after the file
+  // was last written, so the vault's timestamp is the later one on almost
+  // every healthy row — marking it "newer" there would suggest the vault holds
+  // something the source does not, which is exactly backwards.
+  if (file.state === "drifted") {
+    const a = new Date(file.sourceModified).getTime();
+    const b = new Date(file.vaultModified).getTime();
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b) {
+      const newer = a > b ? source : vault;
+      newer.classList.add("differences-side--newer");
+      const marker = document.createElement("span");
+      marker.className = "differences-newer";
+      marker.textContent = "newer";
+      newer.appendChild(marker);
+    }
+  }
+
+  return wrap;
+}
+
 function buildRow(appName: string, file: main.FileRow): HTMLLIElement {
   const li = document.createElement("li");
   li.className = `differences-row differences-row--${file.state}`;
@@ -90,25 +201,8 @@ function buildRow(appName: string, file: main.FileRow): HTMLLIElement {
   header.appendChild(path);
   header.appendChild(state);
 
-  const meta = document.createElement("div");
-  meta.className = "differences-meta";
-  const sys = document.createElement("span");
-  sys.textContent =
-    file.state === "missing" ? "system: gone" : `system: ${formatDate(file.sourceModified)}`;
-  const vault = document.createElement("span");
-  if (file.state === "untracked") {
-    vault.textContent = "vault: not backed up yet";
-  } else if (file.state === "vaultMissing") {
-    vault.textContent = "vault: copy missing";
-  } else {
-    const size = file.size > 0 ? `, ${formatSize(file.size)}` : "";
-    vault.textContent = `vault: ${formatLastUpdated(file.vaultModified)}${size}`;
-  }
-  meta.appendChild(sys);
-  meta.appendChild(vault);
-
   li.appendChild(header);
-  li.appendChild(meta);
+  li.appendChild(buildCompare(file));
 
   // Only a file with both sides present has anything to diff.
   if (file.state !== "drifted") return li;
@@ -179,7 +273,9 @@ export function openDifferences(row: main.AppRow): void {
   summary.textContent =
     changed.length === 0
       ? "Everything matches the vault."
-      : `${changed.length} of ${row.files.length} ${row.files.length === 1 ? "file" : "files"} differ.`;
+      : `${changed.length} of ${row.files.length} ${
+          row.files.length === 1 ? "file" : "files"
+        } ${changed.length === 1 ? "differs" : "differ"}.`;
   content.appendChild(summary);
 
   const list = document.createElement("ul");

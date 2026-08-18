@@ -564,3 +564,44 @@ func TestUpdateFromSource_RejectsPathTraversal(t *testing.T) {
 		t.Fatalf("the hostile source should never have been copied into the vault, stat err = %v", err)
 	}
 }
+
+// --- FileRow.SourceSize ---------------------------------------------------
+
+// TestGetMirrorRows_CarriesBothSidesSizes proves SourceSize is the live file's
+// own size and not a second name for the vault copy's.
+//
+// The two files are deliberately different lengths. A fixture where both sides
+// happen to be the same size would pass even if SourceSize were wired straight
+// to the vault's Size — and that is not a hypothetical shape: the differences
+// view exists precisely because two files can be the same size and still
+// differ, which is how this field came to be needed at all.
+func TestGetMirrorRows_CarriesBothSidesSizes(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+
+	stored := seedVaultFile(t, vault, "bash", ".bashrc", "vault copy\n")
+	saveTestManifest(t, vault, "bash", []ManifestFile{stored})
+
+	live := "the live file is longer than the copy in the vault\n"
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"), []byte(live), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := a.GetMirrorRows()
+	if err != nil {
+		t.Fatalf("GetMirrorRows: %v", err)
+	}
+	if len(rows) != 1 || len(rows[0].Files) != 1 {
+		t.Fatalf("expected one app with one file, got %+v", rows)
+	}
+
+	f := rows[0].Files[0]
+	if f.SourceSize != int64(len(live)) {
+		t.Errorf("SourceSize = %d, want %d (the live file's size)", f.SourceSize, len(live))
+	}
+	if f.Size != stored.Size {
+		t.Errorf("Size = %d, want %d (the vault copy's size)", f.Size, stored.Size)
+	}
+	if f.SourceSize == f.Size {
+		t.Fatal("both sizes came out equal, so this fixture cannot tell them apart")
+	}
+}

@@ -4,7 +4,7 @@ import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
 import { formatDate, formatLastUpdated } from "./dates";
 import { extractErrorMessage } from "./util";
-import { refreshMirror } from "./rows";
+import { refreshMirror, getRow } from "./rows";
 
 // "Update from source (now)" satisfies CORE.md §4's Overwrite-rules bullet
 // (dates shown before an overwrite commits) without reopening the full
@@ -151,7 +151,18 @@ function openConfirm(heading: string, entries: ConfirmEntry[], showAppName: bool
   openOverlay(content, { dismissable: true });
 }
 
-export function openUpdateConfirm(row: main.AppRow): void {
+export async function openUpdateConfirm(row: main.AppRow): Promise<void> {
+  // Same staleness as the restore side, and the same consequence: this row was
+  // rendered, not read, so a file changed since the last scan is invisible to
+  // the drifted check below. Update All already re-fetches before deciding.
+  await refreshMirror();
+  const fresh = getRow(row.name);
+  if (!fresh) {
+    showToast(`${row.name} is no longer being tracked`);
+    return;
+  }
+  row = fresh;
+
   if (!row.drifted) {
     showToast(`${row.name} is already up to date`);
     return;

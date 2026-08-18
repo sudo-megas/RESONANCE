@@ -32,3 +32,16 @@ export function formatDateTime(iso: string): string {
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${datePart} ${hh}:${min}`;
 }
+
+// The differences view compares two moments that are routinely seconds apart:
+// a file edited and then backed up, or edited again just after. HH:MM has
+// exactly the failure mode there that DD MM YYYY has at day granularity, only
+// rarer — two timestamps printing the same string while describing different
+// moments — so that one view asks for the extra digits. Everywhere else keeps
+// minutes, where seconds would be noise.
+export function formatDateTimeExact(iso: string): string {
+  const base = formatDateTime(iso);
+  if (base === "—") return base;
+  const d = new Date(iso);
+  return `${base}:${String(d.getSeconds()).padStart(2, "0")}`;
+}

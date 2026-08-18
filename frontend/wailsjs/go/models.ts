@@ -75,6 +75,7 @@ export namespace main {
 	    sourceModified: string;
 	    vaultModified: string;
 	    size: number;
+	    sourceSize: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileRow(source);
@@ -88,6 +89,7 @@ export namespace main {
 	        this.sourceModified = source["sourceModified"];
 	        this.vaultModified = source["vaultModified"];
 	        this.size = source["size"];
+	        this.sourceSize = source["sourceSize"];
 	    }
 	}
 	export class AppRow {
