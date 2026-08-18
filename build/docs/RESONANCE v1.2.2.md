@@ -183,7 +183,11 @@ symlink made the root a non-directory, the walk visited nothing, and every such 
 it was clean. That was an absence reading as an answer, in the one view whose entire job is to
 report what is there.
 
-**Not in this release.** The `/etc`/`/usr` scope change, which is queued next.
+**Not in this release.** The `/etc`/`/usr` scope change, which is queued next — and with it
+the Change Path overlay, whose elements the maker wants rearranged. That surface is where the
+scope refusal is actually spoken to the user ("no permission to use /etc/alsa/ — that folder
+belongs to another user"), so its layout is settled once there is a final answer about what the
+app may reach, rather than twice.
 
 ## Icons
 
