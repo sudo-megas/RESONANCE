@@ -805,4 +805,9 @@ func TestGetUndoInfo_RejectsPathEscape(t *testing.T) {
 	if _, err := a.UndoRestore("../../etc"); err == nil {
 		t.Fatal("UndoRestore accepted a path-escaping app name")
 	}
+	// The one that matters most: this is the entry point that calls
+	// os.RemoveAll on three joined paths.
+	if err := a.DiscardUndoSnapshot("../../etc"); err == nil {
+		t.Fatal("DiscardUndoSnapshot accepted a path-escaping app name")
+	}
 }
