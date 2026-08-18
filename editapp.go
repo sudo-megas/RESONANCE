@@ -27,6 +27,16 @@ type TrackedDir struct {
 	FileCount int    `json:"fileCount"`
 }
 
+// UntrackPreview is what untracking a folder would do, counted before the
+// user commits to it. KeepsTracked is the files that already have their own
+// manifest entry and so survive untouched; StopsTracking is the files in the
+// folder that have never been backed up and would simply stop being watched.
+type UntrackPreview struct {
+	Dir           string `json:"dir"`
+	KeepsTracked  int    `json:"keepsTracked"`
+	StopsTracking int    `json:"stopsTracking"`
+}
+
 // AppComposition is the edit overlay's read model: what an app is made of,
 // in the same two units AddApp accepts.
 //
@@ -106,6 +116,8 @@ func pathCoveredByDir(p, d string) bool {
 // AddApp minus the app creation, sharing stageAdd/commitAdd so the two can
 // never disagree about what a picked folder means.
 func (a *App) AddToApp(name string, absPaths []string) error {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	settings, m, idx, err := a.loadAppForEdit(name)
 	if err != nil {
 		return err
@@ -166,6 +178,8 @@ func (a *App) AddToApp(name string, absPaths []string) error {
 // dropped while its vault copy survives is unreferenced garbage that nothing
 // in the app can ever find or remove again.
 func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResult, error) {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	result := RemoveResult{RemovedFiles: []string{}, RemovedDirs: []string{}, Failed: []RestoreFailure{}}
 
 	settings, m, idx, err := a.loadAppForEdit(name)
@@ -207,12 +221,23 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		// deletion would silently undo itself. Enforced here and not only in
 		// the overlay, so the loop is unreachable even from a hand-written
 		// IPC call.
+		// Every covering folder, not just the first: stageAdd permits nested
+		// tracked folders, so ".config" and ".config/nvim" can both be in
+		// Dirs. Naming only one would send the user to untrack it, then
+		// refuse the same removal again naming the next one out — a dead end
+		// that looks like the app changing its mind.
+		var covering []string
 		for _, d := range app.Dirs {
 			if pathCoveredByDir(p, d) {
-				return result, fmt.Errorf(
-					"%s is inside the tracked folder %s — track that folder's files individually first, or remove the whole folder",
-					p, d)
+				covering = append(covering, d)
 			}
+		}
+		if len(covering) > 0 {
+			return result, fmt.Errorf(
+				"%s is inside the tracked %s %s — untrack %s first, or remove the whole folder",
+				p, plural(len(covering), "folder", "folders"),
+				strings.Join(covering, " and "),
+				plural(len(covering), "it", "those"))
 		}
 		if _, err := homeRelative(filepath.Join(vaultAppDir, filepath.FromSlash(p)), vaultAppDir); err != nil {
 			return result, fmt.Errorf("%s isn't inside this app's vault folder", p)
@@ -321,28 +346,80 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 	return result, nil
 }
 
-// ExpandTrackedDir converts a tracked folder into the list of files it
-// currently holds: every file the folder walk finds becomes its own manifest
-// entry, and the folder stops being tracked as a folder.
+// UntrackDir stops tracking a folder as a folder. It moves no bytes, deletes
+// nothing, and leaves every individual manifest entry exactly as it was.
 //
 // This is what makes removing a single file from inside a tracked folder
-// possible at all. It moves no bytes and deletes nothing — it changes only
-// which of the manifest's two existing representations describes these
-// files. Afterwards the folder is no longer walked, so a later removal
-// sticks instead of being rediscovered and copied back.
+// possible at all. While the folder is tracked, the walk rediscovers a
+// removed file on the next refresh and the next update copies it back, so
+// the deletion silently undoes itself; once the folder is no longer walked,
+// the removal sticks.
 //
-// Files the walk finds that were never backed up go in with no checksum.
-// That needs no special handling anywhere: an empty Checksum already means
-// "needs backing up" throughout this codebase, so the result is a state the
-// existing machinery was built for.
-func (a *App) ExpandTrackedDir(name, relDir string) error {
+// Dropping the Dirs entry is the whole operation, and that is not a
+// shortcut. stageAdd records a picked folder in Dirs AND expands it into
+// individual Files entries, and UpdateFromSource materialises any file the
+// walk later finds the same way — so every file in the folder that has ever
+// been backed up already has its own entry with its own checksum, and those
+// entries are untouched here.
+//
+// An earlier version of this function walked the folder and added an entry
+// for every file it found, including files that had never been backed up,
+// on the reasoning that an empty Checksum already means "needs backing up".
+// That reasoning was a release out of date and the result was actively
+// harmful: v1.2.1 made fileDriftRow check the vault side BEFORE the checksum
+// branch, so a zero-checksum entry with no vault copy now reports
+// vaultMissing — "Backup missing from the vault". Those files would have
+// gone from the mildest badge in the app to its most severe, and RestoreApp
+// would have started reporting each one as a failure, all because the user
+// clicked a conversion that was advertised as changing nothing. A backup
+// tool claiming it lost a file it never held is the same lie v1.2.1 was
+// written to kill, just pointed the other way.
+//
+// So files in the folder that were never backed up simply stop being
+// tracked. That is honest, and PreviewUntrackDir exists to say so in advance.
+func (a *App) UntrackDir(name, relDir string) error {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	settings, m, idx, err := a.loadAppForEdit(name)
 	if err != nil {
 		return err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	app := m.Apps[idx]
+
+	keptDirs := make([]string, 0, len(app.Dirs))
+	found := false
+	for _, d := range app.Dirs {
+		if d == relDir {
+			found = true
+			continue
+		}
+		keptDirs = append(keptDirs, d)
+	}
+	if !found {
+		return fmt.Errorf("%s isn't a tracked folder of %s", relDir, app.Name)
+	}
+	app.Dirs = keptDirs
+
+	m.Apps[idx] = app
+	// No stampMachineInfo: nothing was copied, so this machine has no claim
+	// to being the one that backed the app up.
+	if err := saveManifest(settings.VaultPath, m); err != nil {
 		return err
+	}
+	recordActivity("edit", app.Name, fmt.Sprintf("Stopped tracking the folder %s", relDir))
+	return nil
+}
+
+// PreviewUntrackDir reports what untracking a folder would cost, so the
+// overlay can state it before the user commits rather than after.
+//
+// This is the one call in the edit surface that walks the disk, which is why
+// it is separate from GetAppComposition: opening the overlay stays free, and
+// only a user actually reaching for this specific folder pays for the walk.
+func (a *App) PreviewUntrackDir(name, relDir string) (UntrackPreview, error) {
+	settings, m, idx, err := a.loadAppForEdit(name)
+	if err != nil {
+		return UntrackPreview{}, err
 	}
 	app := m.Apps[idx]
 
@@ -354,33 +431,27 @@ func (a *App) ExpandTrackedDir(name, relDir string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("%s isn't a tracked folder of %s", relDir, app.Name)
+		return UntrackPreview{}, fmt.Errorf("%s isn't a tracked folder of %s", relDir, app.Name)
 	}
 
-	known := make(map[string]bool, len(app.Files))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return UntrackPreview{}, err
+	}
+
+	tracked := make(map[string]bool, len(app.Files))
 	for _, f := range app.Files {
-		known[f.Path] = true
+		if pathCoveredByDir(f.Path, relDir) {
+			tracked[f.Path] = true
+		}
 	}
+	p := UntrackPreview{Dir: relDir, KeepsTracked: len(tracked)}
 	for _, rel := range expandTrackedDir(home, relDir, trackedDirSkips(settings.VaultPath)) {
-		if known[rel] {
-			continue
+		if !tracked[rel] {
+			p.StopsTracking++
 		}
-		known[rel] = true
-		app.Files = append(app.Files, ManifestFile{Path: rel})
 	}
-
-	keptDirs := make([]string, 0, len(app.Dirs))
-	for _, d := range app.Dirs {
-		if d == relDir {
-			continue
-		}
-		keptDirs = append(keptDirs, d)
-	}
-	app.Dirs = keptDirs
-
-	m.Apps[idx] = app
-	// No stampMachineInfo: nothing was copied.
-	return saveManifest(settings.VaultPath, m)
+	return p, nil
 }
 
 // RemoveApp deletes an app's entire vault subtree and its manifest entry.
@@ -393,6 +464,8 @@ func (a *App) ExpandTrackedDir(name, relDir string) error {
 // forever holding its name: "bash" could never be created again. Shipping
 // removal without this would make the app worse than it was.
 func (a *App) RemoveApp(name string) (RemoveResult, error) {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	result := RemoveResult{RemovedFiles: []string{}, RemovedDirs: []string{}, Failed: []RestoreFailure{}}
 
 	settings, m, idx, err := a.loadAppForEdit(name)
@@ -437,6 +510,8 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 // RenameApp changes an app's name, moving its vault folder and its undo
 // snapshot with it so nothing is left keyed to the old name.
 func (a *App) RenameApp(oldName, newName string) error {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
 	newName = strings.TrimSpace(newName)
 	if err := validAppName(newName); err != nil {
 		return err
@@ -468,18 +543,32 @@ func (a *App) RenameApp(oldName, newName string) error {
 	}
 	// An app with no files yet has no vault folder, and that is not an
 	// error — there is simply nothing to move.
+	moved := false
 	if _, err := os.Lstat(oldDir); err == nil {
 		if err := os.Rename(oldDir, newDir); err != nil {
 			return err
 		}
+		moved = true
 	}
 
 	m.Apps[idx].Name = newName
 	if err := saveManifest(settings.VaultPath, m); err != nil {
+		// Put the folder back. Without this the vault directory sits under
+		// the new name while the manifest still says the old one: every file
+		// in the app reads as vaultMissing, "update from source" rebuilds the
+		// whole tree under the old name, and the moved subtree becomes
+		// orphans with no route back from inside the app. commitAdd sets the
+		// precedent — a half-applied vault change gets unwound, not reported.
+		if moved {
+			_ = os.Rename(newDir, oldDir)
+		}
 		return err
 	}
 	renameUndoSnapshot(oldName, newName)
-	recordActivity("remove", newName, fmt.Sprintf("Renamed %s to %s", oldName, newName))
+	// "edit", not "remove": the activity log is the one surface that records
+	// what this app has done to the user's data, and a rename rendered beside
+	// a delete icon reads as a deletion that never happened.
+	recordActivity("edit", newName, fmt.Sprintf("Renamed %s to %s", oldName, newName))
 	return nil
 }
 

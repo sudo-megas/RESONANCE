@@ -112,12 +112,18 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 	// tracked yet," which silently hid a disconnected vault behind what
 	// looked like a healthy, empty one. Propagating it lets the frontend
 	// tell the difference and say so.
+	// Scoped tight on purpose: this is the one manifest writer that runs on
+	// every refresh, and holding manifestMu across the hashing below would
+	// make a routine refresh block on a long update. Everything after the
+	// unlock works from this call's own copy of m.
+	manifestMu.Lock()
 	m, err := loadManifest(settings.VaultPath)
+	if err == nil && backfillChecksums(settings.VaultPath, &m) {
+		_ = saveManifest(settings.VaultPath, m)
+	}
+	manifestMu.Unlock()
 	if err != nil {
 		return nil, err
-	}
-	if backfillChecksums(settings.VaultPath, &m) {
-		_ = saveManifest(settings.VaultPath, m)
 	}
 
 	home, err := os.UserHomeDir()
@@ -421,6 +427,12 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	if err != nil {
 		return result, err
 	}
+	// Held across the whole copy loop. That serializes a long update against
+	// an edit rather than letting the edit be silently reverted by this
+	// function's own save at the end.
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+
 	m, err := loadManifest(settings.VaultPath)
 	if err != nil {
 		return result, err

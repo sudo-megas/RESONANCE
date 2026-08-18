@@ -179,6 +179,9 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		return err
 	}
 
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+
 	m, err := loadManifest(settings.VaultPath)
 	if err != nil {
 		return err
@@ -335,6 +338,16 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 
 	for i := range st.Files {
 		dst := filepath.Join(appDir, filepath.FromSlash(st.Files[i].Path))
+		// The write-side containment guard UpdateFromSource applies before
+		// every copy (drift.go). copyFileAtomic calls MkdirAll and then
+		// creates its temp file inside that directory, and neither declines
+		// to follow a directory symlink, so a planted vault directory
+		// pointing outside would send this backup out of the vault entirely.
+		// Until now this was the one remaining write path without the check.
+		if vaultDirEscapes(vaultPath, dst) {
+			unwind()
+			return fmt.Errorf("%s can't be written — something in the vault points outside it", st.Files[i].Path)
+		}
 		if err := copyFileAtomic(st.Sources[i], dst); err != nil {
 			unwind()
 			return err

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -252,6 +253,23 @@ func sanitizeTrackedDirs(dirs []string) []string {
 
 // saveManifest never creates the vault directory itself — by the time this
 // is called, loadManifest has already proven the directory exists.
+// manifestMu serializes every read-modify-write of manifest.json, on the
+// same reasoning that gave activity.json its activityMu (activity.go): the
+// load-modify-save sequences below have no other coordination, and Wails
+// dispatches bound calls concurrently. Two writers that both load the same
+// manifest, each apply their own change, and each save would leave only the
+// second change — with the first writer's already-copied bytes stranded in
+// the vault as orphans nothing but ScanVaultOrphans can see.
+//
+// v1.2.2 is what makes this reachable in practice rather than in theory. The
+// update-confirm overlay is dismissable, so a user can Escape out of an
+// in-flight update of a large app, open the edit overlay, and save an edit
+// while the update is still walking its file list.
+//
+// Every writer takes this around its whole load-modify-save. None of them
+// calls another, so a plain mutex cannot deadlock here.
+var manifestMu sync.Mutex
+
 func saveManifest(vaultPath string, m Manifest) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -441,6 +459,20 @@ func refuseSymlink(path string) error {
 // A missing intermediate is not an error. There is then nothing to delete,
 // and os.Remove reports that far more precisely than a guess here could.
 func refuseSymlinkedParents(base, rel string) error {
+	// The app directory itself is an intermediate too, and it is the one that
+	// matters most: for a single-segment rel like ".bashrc" the loop below has
+	// no intermediates to walk at all, so without this check the function
+	// would return nil having checked nothing. A vault carrying
+	// <vault>/evil -> $HOME plus a manifest entry naming ".bashrc" would then
+	// unlink the user's live ~/.bashrc, which is the exact deletion this
+	// whole function exists to refuse.
+	//
+	// Note this stops at base and never inspects the vault root above it: a
+	// user whose configured vault path is itself a symlink has an ordinary,
+	// valid setup, and removal must keep working for them.
+	if info, err := os.Lstat(base); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return errors.New(base + " is a symlink — refusing to delete through it")
+	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	cur := base
 	for _, seg := range parts[:max(len(parts)-1, 0)] {

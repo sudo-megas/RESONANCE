@@ -496,7 +496,12 @@ func TestAddToApp_ReAddingATrackedFileIsANoOp(t *testing.T) {
 // point of the conversion. Without it the folder walk rediscovers the
 // removed file on the next refresh and the next update copies it back, so
 // the deletion silently undoes itself.
-func TestExpandTrackedDir_ThenRemove_DeletionSurvivesRediscovery(t *testing.T) {
+// TestUntrackDir_ThenRemove_SurvivesRefreshAndUpdate is the resurrection
+// loop, end to end. While a folder is tracked, removing one file inside it
+// undoes itself: the walk rediscovers the file on the next refresh and the
+// next update copies it back. Both halves are checked here, because only the
+// update actually re-materialises the bytes.
+func TestUntrackDir_ThenRemove_SurvivesRefreshAndUpdate(t *testing.T) {
 	a, home, vault := newRestoreFixture(t)
 
 	dir := filepath.Join(home, ".config", "nvim")
@@ -512,8 +517,19 @@ func TestExpandTrackedDir_ThenRemove_DeletionSurvivesRediscovery(t *testing.T) {
 		t.Fatalf("AddApp: %v", err)
 	}
 
-	if err := a.ExpandTrackedDir("nvim", ".config/nvim"); err != nil {
-		t.Fatalf("ExpandTrackedDir: %v", err)
+	// A file that appeared in the folder after the app was created. Until an
+	// update runs it is tracked only by the folder walk, and this proves the
+	// update materialises it into an entry of its own — which is what lets
+	// untracking be a pure Dirs drop rather than a walk.
+	if err := os.WriteFile(filepath.Join(dir, "plugins.lua"), []byte("plugins"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.UpdateFromSource("nvim"); err != nil {
+		t.Fatalf("UpdateFromSource: %v", err)
+	}
+
+	if err := a.UntrackDir("nvim", ".config/nvim"); err != nil {
+		t.Fatalf("UntrackDir: %v", err)
 	}
 	m, err := loadManifest(vault)
 	if err != nil {
@@ -522,12 +538,78 @@ func TestExpandTrackedDir_ThenRemove_DeletionSurvivesRediscovery(t *testing.T) {
 	if len(m.Apps[0].Dirs) != 0 {
 		t.Fatalf("Dirs = %v, want the folder no longer tracked as a folder", m.Apps[0].Dirs)
 	}
-	if len(m.Apps[0].Files) != 2 {
-		t.Fatalf("Files = %v, want both files tracked individually", m.Apps[0].Files)
+	if len(m.Apps[0].Files) != 3 {
+		t.Fatalf("Files = %v, want all three still tracked individually", m.Apps[0].Files)
 	}
 
 	if _, err := a.RemoveFromApp("nvim", []string{".config/nvim/lazy-lock.json"}, nil); err != nil {
-		t.Fatalf("RemoveFromApp after expand: %v", err)
+		t.Fatalf("RemoveFromApp after untrack: %v", err)
+	}
+
+	const removed = ".config/nvim/lazy-lock.json"
+	assertAbsent := func(when string) {
+		t.Helper()
+		rows, err := a.GetMirrorRows()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fr := range rows[0].Files {
+			if fr.Path == removed {
+				t.Fatalf("%s came back %s — the deletion undid itself", removed, when)
+			}
+		}
+	}
+	assertAbsent("on the next refresh")
+	if _, err := a.UpdateFromSource("nvim"); err != nil {
+		t.Fatalf("UpdateFromSource after removal: %v", err)
+	}
+	assertAbsent("on the next update")
+
+	// And the live file was never the target of any of this.
+	if _, err := os.Lstat(filepath.Join(dir, "lazy-lock.json")); err != nil {
+		t.Fatal("the live file was deleted")
+	}
+}
+
+// TestUntrackDir_DoesNotInventVaultMissingRows pins the reason UntrackDir is
+// a pure Dirs drop rather than the walk-and-materialise it started as.
+//
+// Adding an entry for a file that has never been backed up produces a
+// zero-checksum entry with no vault copy, and since v1.2.1 fileDriftRow
+// checks the vault side before the checksum branch, that reads as
+// vaultMissing — the app's most severe state, telling the user a backup went
+// missing that never existed. Clicking a conversion advertised as changing
+// nothing must not do that.
+func TestUntrackDir_DoesNotInventVaultMissingRows(t *testing.T) {
+	a, home, _ := newRestoreFixture(t)
+
+	dir := filepath.Join(home, ".config", "nvim")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "init.lua"), []byte("init"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.AddApp("nvim", []string{dir}); err != nil {
+		t.Fatalf("AddApp: %v", err)
+	}
+
+	// Created after the add, with no update since: this file exists in the
+	// folder but has no vault copy and no manifest entry.
+	if err := os.WriteFile(filepath.Join(dir, "scratch.lua"), []byte("scratch"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := a.PreviewUntrackDir("nvim", ".config/nvim")
+	if err != nil {
+		t.Fatalf("PreviewUntrackDir: %v", err)
+	}
+	if preview.KeepsTracked != 1 || preview.StopsTracking != 1 {
+		t.Fatalf("preview = %+v, want KeepsTracked 1 / StopsTracking 1", preview)
+	}
+
+	if err := a.UntrackDir("nvim", ".config/nvim"); err != nil {
+		t.Fatalf("UntrackDir: %v", err)
 	}
 
 	rows, err := a.GetMirrorRows()
@@ -535,8 +617,95 @@ func TestExpandTrackedDir_ThenRemove_DeletionSurvivesRediscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, fr := range rows[0].Files {
-		if fr.Path == ".config/nvim/lazy-lock.json" {
-			t.Fatal("the removed file came back through the folder walk — the deletion undid itself")
+		if fr.State == "vaultMissing" {
+			t.Fatalf("%s reports vaultMissing after untracking — the app is claiming a backup went missing that never existed", fr.Path)
 		}
+		if fr.Path == ".config/nvim/scratch.lua" {
+			t.Fatal("a never-backed-up file was adopted into the manifest by untracking")
+		}
+	}
+}
+
+// --- refuseSymlinkedParents: the app directory position ------------------
+
+// TestRemoveFromApp_RefusesSymlinkedAppDir covers the position every other
+// symlink test in this file misses. The guard walks the components of rel
+// BELOW the app directory, so for a single-segment path like ".bashrc" there
+// are no intermediates to walk and the walk alone checks nothing at all — the
+// app directory itself has to be checked explicitly.
+//
+// The vault here is the threat model the rest of the app already assumes: one
+// that arrived from somewhere else, via AdoptVaultPath or a synced drive.
+// Whoever last had it plants <vault>/evil -> $HOME and a manifest entry
+// naming ".bashrc". Without the base check this test deletes the tester's own
+// fixture ~/.bashrc, which is exactly what it would do to a real user.
+func TestRemoveFromApp_RefusesSymlinkedAppDir(t *testing.T) {
+	a, home, vault := newRestoreFixture(t)
+
+	const liveContent = "the user's real shell config"
+	liveFile := filepath.Join(home, ".bashrc")
+	if err := os.WriteFile(liveFile, []byte(liveContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(home, filepath.Join(vault, "evil")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	saveTestManifest(t, vault, "evil", []ManifestFile{{Path: ".bashrc"}})
+
+	result, err := a.RemoveFromApp("evil", []string{".bashrc"}, nil)
+	if err != nil {
+		t.Fatalf("RemoveFromApp: %v", err)
+	}
+	if len(result.Failed) != 1 {
+		t.Fatalf("Failed = %v, want the removal refused (Removed = %v)", result.Failed, result.RemovedFiles)
+	}
+
+	got, err := os.ReadFile(liveFile)
+	if err != nil {
+		t.Fatal("the user's live ~/.bashrc was deleted through a symlinked app directory")
+	}
+	if string(got) != liveContent {
+		t.Fatalf("live file = %q, want it untouched", got)
+	}
+
+	m, err := loadManifest(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Apps[0].Files) != 1 {
+		t.Fatal("a refused removal must keep its manifest entry")
+	}
+}
+
+// TestRemoveFromApp_WorksWhenVaultRootIsASymlink is the other side of the
+// same fix, and the reason the base check stops where it does. A vault path
+// that is itself a symlink — a removable drive reached through a stable
+// alias, say — is an ordinary, valid setup. A guard that walked any higher
+// than the app directory would lock those users out of removing anything,
+// turning a security fix into a broken app for a legitimate configuration.
+func TestRemoveFromApp_WorksWhenVaultRootIsASymlink(t *testing.T) {
+	a, _, realVault := newRestoreFixture(t)
+
+	link := filepath.Join(t.TempDir(), "vault-link")
+	if err := os.Symlink(realVault, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := a.SaveSettings(Settings{Theme: defaultTheme, VaultPath: link}); err != nil {
+		t.Fatal(err)
+	}
+
+	f := seedVaultFile(t, realVault, "bash", ".bashrc", "backup bytes")
+	saveTestManifest(t, realVault, "bash", []ManifestFile{f})
+
+	result, err := a.RemoveFromApp("bash", []string{".bashrc"}, nil)
+	if err != nil {
+		t.Fatalf("RemoveFromApp: %v", err)
+	}
+	if len(result.Failed) != 0 {
+		t.Fatalf("Failed = %v, want the removal to go through a symlinked vault root", result.Failed)
+	}
+	if _, err := os.Lstat(filepath.Join(realVault, "bash", ".bashrc")); !os.IsNotExist(err) {
+		t.Fatal("the vault copy should have been removed")
 	}
 }

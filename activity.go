@@ -22,7 +22,7 @@ var activityMu sync.Mutex
 // ActivityEntry records one completed add/update/restore/undo operation for
 // the recent-activity popup.
 type ActivityEntry struct {
-	Kind      string `json:"kind"` // "add" | "update" | "restore" | "undo"
+	Kind      string `json:"kind"` // "add" | "update" | "restore" | "undo" | "remove" | "edit"
 	AppName   string `json:"appName"`
 	Summary   string `json:"summary"`   // precomputed human-readable description
 	Timestamp string `json:"timestamp"` // RFC3339 UTC
