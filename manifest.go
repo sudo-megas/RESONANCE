@@ -473,6 +473,16 @@ func refuseSymlinkedParents(base, rel string) error {
 	if info, err := os.Lstat(base); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return errors.New(base + " is a symlink — refusing to delete through it")
 	}
+	return refuseSymlinkedIntermediates(base, rel)
+}
+
+// refuseSymlinkedIntermediates is refuseSymlinkedParents without the check on
+// base itself. It exists for the one caller whose base IS the user-configured
+// vault root — orphan removal, whose paths are vault-relative rather than
+// app-relative. There, base being a symlink is the ordinary valid setup the
+// comment above describes, while every directory inside the vault is
+// plantable and must still be refused.
+func refuseSymlinkedIntermediates(base, rel string) error {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	cur := base
 	for _, seg := range parts[:max(len(parts)-1, 0)] {

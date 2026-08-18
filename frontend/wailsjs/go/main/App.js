@@ -98,6 +98,10 @@ export function RemoveFromApp(arg1, arg2, arg3) {
   return window['go']['main']['App']['RemoveFromApp'](arg1, arg2, arg3);
 }
 
+export function RemoveVaultOrphans(arg1) {
+  return window['go']['main']['App']['RemoveVaultOrphans'](arg1);
+}
+
 export function RenameApp(arg1, arg2) {
   return window['go']['main']['App']['RenameApp'](arg1, arg2);
 }

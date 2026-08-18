@@ -50,6 +50,8 @@ export function RemoveApp(arg1:string):Promise<main.RemoveResult>;
 
 export function RemoveFromApp(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<main.RemoveResult>;
 
+export function RemoveVaultOrphans(arg1:Array<string>):Promise<main.RemoveResult>;
+
 export function RenameApp(arg1:string,arg2:string):Promise<void>;
 
 export function RestoreApp(arg1:string):Promise<main.RestoreResult>;

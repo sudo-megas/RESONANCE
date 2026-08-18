@@ -401,12 +401,20 @@ type OrphanReport struct {
 // v1.2.1 reports only. Removing them needs the delete surface that lands
 // with app editing, and inventing a second one here would have to be undone.
 func (a *App) ScanVaultOrphans() (OrphanReport, error) {
-	report := OrphanReport{Files: []string{}}
 	settings := a.GetSettings()
 	if settings.VaultPath == "" {
-		return report, nil
+		return OrphanReport{Files: []string{}}, nil
 	}
-	m, err := loadManifest(settings.VaultPath)
+	return scanVaultOrphans(settings.VaultPath)
+}
+
+// scanVaultOrphans is the body of ScanVaultOrphans, split out so the remover
+// can re-derive the set for itself while holding manifestMu. It deliberately
+// does not take that lock: every caller either already holds it or is a pure
+// reader.
+func scanVaultOrphans(vaultPath string) (OrphanReport, error) {
+	report := OrphanReport{Files: []string{}}
+	m, err := loadManifest(vaultPath)
 	if err != nil {
 		return report, err
 	}
@@ -430,11 +438,24 @@ func (a *App) ScanVaultOrphans() (OrphanReport, error) {
 		}
 	}
 
-	_ = filepath.WalkDir(settings.VaultPath, func(p string, d fs.DirEntry, err error) error {
+	// WalkDir lstats its root, so a vault path that is itself a symlink makes
+	// the root a non-directory and the walk returns having visited nothing —
+	// reporting "nothing unaccounted for" for every such vault, which is a
+	// lie rather than an absence. A symlinked vault path is an ordinary valid
+	// setup that refuseSymlinkedParents goes out of its way to keep working,
+	// so it has to work here too. Only the root is resolved; symlinks found
+	// inside the vault are still never followed, and are reported as the
+	// single entries they are.
+	root := vaultPath
+	if resolved, err := filepath.EvalSymlinks(vaultPath); err == nil {
+		root = resolved
+	}
+
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(settings.VaultPath, p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return nil
 		}
@@ -454,6 +475,100 @@ func (a *App) ScanVaultOrphans() (OrphanReport, error) {
 		return nil
 	})
 	return report, nil
+}
+
+// RemoveVaultOrphans deletes vault files that no manifest entry accounts for.
+//
+// This is the only operation in the program that deletes a file nothing
+// references — every other removal has a manifest entry naming it, and so has
+// something to be checked against. That asymmetry is why the list the
+// frontend sends is treated as a request rather than an instruction: the scan
+// the user looked at may be minutes old, and the set is re-derived here, under
+// the lock, immediately before anything is unlinked. A path that is no longer
+// an orphan is refused per-file rather than deleted.
+//
+// Re-deriving is also what makes the whole surface safe against a hand-written
+// IPC call, without a single bespoke check: a manifest-backed file,
+// manifest.json itself, a ".." traversal and a path that never existed are all
+// simply absent from the set the scan just built.
+//
+// manifestMu is held for a reason specific to this operation. commitAdd copies
+// every file into the vault BEFORE it saves the manifest, so for the duration
+// of an add those freshly written backups are, by the only definition
+// available, orphans. A scan racing an add would offer to delete the very
+// bytes being added. Serialising against every manifest writer closes that
+// window, and it is the one place where an orphan sweep could destroy a
+// backup the user was in the middle of making.
+func (a *App) RemoveVaultOrphans(relPaths []string) (RemoveResult, error) {
+	manifestMu.Lock()
+	defer manifestMu.Unlock()
+
+	result := RemoveResult{RemovedFiles: []string{}, RemovedDirs: []string{}, Failed: []RestoreFailure{}}
+	settings := a.GetSettings()
+	if settings.VaultPath == "" {
+		return result, errors.New("no vault is configured")
+	}
+	report, err := scanVaultOrphans(settings.VaultPath)
+	if err != nil {
+		return result, err
+	}
+	orphan := make(map[string]bool, len(report.Files))
+	for _, f := range report.Files {
+		orphan[f] = true
+	}
+
+	for _, rel := range relPaths {
+		if !orphan[rel] {
+			result.Failed = append(result.Failed, RestoreFailure{
+				Path:   rel,
+				Reason: "nothing unaccounted-for at this path any more — close this and look again",
+			})
+			continue
+		}
+		// The membership test above already refuses anything the walk did not
+		// produce, and the walk never follows a symlink — so on its own this
+		// guard is unreachable, and it is kept deliberately anyway. It covers
+		// the window between that rescan and this unlink, in which another
+		// process can replace a directory in the path with a link to
+		// somewhere else. That window is small, but it is the only kind of
+		// mistake this program can make that leaves nothing to restore from.
+		// The vault root is exempt because a symlinked vault path is an
+		// ordinary setup; everything inside the vault is not.
+		if err := refuseSymlinkedIntermediates(settings.VaultPath, rel); err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: rel, Reason: err.Error()})
+			continue
+		}
+		abs := filepath.Join(settings.VaultPath, filepath.FromSlash(rel))
+		// os.Remove is unlink(2), which declines to follow a symlink at the
+		// final component — so an orphan that is itself a link is unlinked,
+		// never followed to whatever it points at.
+		if err := os.Remove(abs); err != nil {
+			result.Failed = append(result.Failed, RestoreFailure{Path: rel, Reason: err.Error()})
+			continue
+		}
+		result.RemovedFiles = append(result.RemovedFiles, rel)
+		pruneEmptyDirs(filepath.Dir(abs), settings.VaultPath)
+	}
+
+	if len(result.RemovedFiles) > 0 {
+		recordActivity("remove", "vault", summarizeOrphanActivity(result))
+	}
+	return result, nil
+}
+
+// summarizeOrphanActivity phrases the log line for an orphan sweep. It names
+// the vault rather than an app because an app it belongs to is exactly the
+// thing an orphan does not have.
+func summarizeOrphanActivity(result RemoveResult) string {
+	noun := "files"
+	if len(result.RemovedFiles) == 1 {
+		noun = "file"
+	}
+	line := fmt.Sprintf("Deleted %d unaccounted-for %s from the vault", len(result.RemovedFiles), noun)
+	if len(result.Failed) > 0 {
+		line += fmt.Sprintf(", %d could not be deleted", len(result.Failed))
+	}
+	return line
 }
 
 // summarizeAddActivity builds AddApp's activity-log summary from the file

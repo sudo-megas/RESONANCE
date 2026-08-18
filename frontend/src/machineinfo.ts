@@ -1,7 +1,13 @@
 import { main } from "../wailsjs/go/models";
-import { GetMachineInfo, GetSettings } from "../wailsjs/go/main/App";
+import {
+  GetMachineInfo,
+  GetSettings,
+  ScanVaultOrphans,
+  RemoveVaultOrphans,
+} from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
-import { extractErrorMessage } from "./util";
+import { extractErrorMessage, formatSize } from "./util";
+import { showToast } from "./toast";
 
 export function buildMachineInfoCard(info: main.MachineInfo): HTMLElement {
   const card = document.createElement("div");
@@ -46,6 +52,107 @@ export function buildMachineInfoCard(info: main.MachineInfo): HTMLElement {
  * it. Since the card describes the vault as a whole, it belongs to the
  * chrome that labels the vault.
  */
+
+/**
+ * The list is shortened at this many rows; the deletion never is. Capping the
+ * payload instead would make files beyond the cap permanently undeletable,
+ * which is the bug this whole release exists to stop shipping.
+ */
+const MAX_RENDERED_ORPHANS = 300;
+
+/**
+ * Vault files that no manifest entry accounts for.
+ *
+ * This lives inside "This vault" rather than getting a surface of its own
+ * because an orphan has no app to belong to — it is a property of the vault,
+ * which is exactly what this overlay already describes. It is also the only
+ * button in the program that deletes a file nothing references, so it says
+ * plainly where the files came from before offering to remove them: a user
+ * who cannot tell why a file is listed cannot judge whether to agree.
+ */
+function buildOrphanSection(): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "orphan-section";
+
+  const render = (): void => {
+    ScanVaultOrphans()
+      .then((report) => {
+        section.replaceChildren();
+        if (report.files.length === 0) return;
+
+        const label = document.createElement("h3");
+        label.className = "snapshot-section-label";
+        label.textContent = "Unaccounted-for files";
+        section.appendChild(label);
+
+        const note = document.createElement("p");
+        note.className = "orphan-note";
+        note.textContent =
+          "These sit in the vault, but nothing in it says which app they belong to. They are left behind by a copy that was interrupted, or by an older version that had no way to remove anything. Deleting them frees the space and changes no backup.";
+        section.appendChild(note);
+
+        const list = document.createElement("ul");
+        list.className = "orphan-list";
+        for (const f of report.files.slice(0, MAX_RENDERED_ORPHANS)) {
+          const li = document.createElement("li");
+          li.className = "orphan-row";
+          li.textContent = f;
+          list.appendChild(li);
+        }
+        section.appendChild(list);
+
+        if (report.files.length > MAX_RENDERED_ORPHANS) {
+          const more = document.createElement("p");
+          more.className = "orphan-note";
+          more.textContent = `\u2026 and ${report.files.length - MAX_RENDERED_ORPHANS} more. All ${report.files.length} are covered by the button below \u2014 the list is shortened, the action is not.`;
+          section.appendChild(more);
+        }
+
+        const noun = report.files.length === 1 ? "file" : "files";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "orphan-delete-btn";
+        btn.textContent = `Delete ${report.files.length} unaccounted-for ${noun} (${formatSize(report.bytes)})`;
+        let armed = false;
+        btn.addEventListener("click", async () => {
+          // Arm-then-confirm, as Move and Remove app already use: one button,
+          // one irreversible consequence. The confirm wording names the vault
+          // and names the home folder, because "delete" with no object is the
+          // reading this program can least afford.
+          if (!armed) {
+            armed = true;
+            btn.textContent = `Confirm \u2014 deletes ${report.files.length} ${noun} from the vault, nothing in ~`;
+            return;
+          }
+          btn.disabled = true;
+          try {
+            const result = await RemoveVaultOrphans(report.files);
+            showToast(
+              result.failed.length > 0
+                ? `${result.removedFiles.length} deleted, ${result.failed.length} left alone`
+                : `${result.removedFiles.length} unaccounted-for ${result.removedFiles.length === 1 ? "file" : "files"} deleted`,
+            );
+          } catch (err) {
+            showToast(extractErrorMessage(err));
+          }
+          // Always re-scan, success or failure: the backend re-derives the set
+          // for itself and may legitimately have refused some of the list, so
+          // what is on screen has to come back from disk rather than from what
+          // the click assumed.
+          render();
+        });
+        section.appendChild(btn);
+      })
+      .catch(() => {
+        // A failed scan must not take the machine card down with it.
+        section.replaceChildren();
+      });
+  };
+
+  render();
+  return section;
+}
+
 export async function openMachineInfo(): Promise<void> {
   const content = document.createElement("div");
   content.className = "machine-info-panel";
@@ -70,6 +177,7 @@ export async function openMachineInfo(): Promise<void> {
 
   const body = document.createElement("div");
   content.appendChild(body);
+  content.appendChild(buildOrphanSection());
 
   openOverlay(content, { dismissable: true });
 

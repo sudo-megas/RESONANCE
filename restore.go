@@ -122,6 +122,15 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 	if err := refuseSymlink(vaultAbs); err != nil {
 		return DiffPair{}, err
 	}
+	// refuseSymlink declines only the final component; every directory above
+	// it is resolved normally. <vault>/bash/x -> $HOME/.ssh with a manifest
+	// path of "x/id_rsa" would therefore read a private key and ship it into
+	// the webview labelled as this app's vault copy. This is the same
+	// resolved-containment question v1.2.1 answered for every other read and
+	// write, asked here for the last read path that was still missing it.
+	if vaultDirEscapes(settings.VaultPath, vaultAbs) {
+		return DiffPair{}, errors.New("can't read the vault copy — something in the vault points outside it")
+	}
 
 	return DiffPair{
 		Live:  readFileContents(liveAbs),

@@ -10,7 +10,7 @@ it is in the vault forever. "as far as i tested you built a half-done app :))"*
 
 ## Amendment deployed by megas — v1.2.2
 
-Three ratified decisions are reversed by this release.
+Four ratified decisions are reversed by this release.
 
 **1. The administrative/polkit release is dropped entirely.**
 v1.2.1's closing note reserved v1.2.2 for "administrative/polkit vault paths", and a full
@@ -49,6 +49,14 @@ operation whose headline promise is "nothing in your home folder changes" was th
 genuinely destructive thing that operation did. A rename onto an occupied name now
 declines the move for the same reason, instead of overwriting.
 
+**4. Orphan deletion ships now rather than being deferred again.**
+v1.2.1 shipped `ScanVaultOrphans` as detection with no caller, explicitly reserving the delete
+surface for this release. When it came to it I recommended deferring a second time, on the
+grounds that it is the only operation in the program that deletes a file nothing references, so
+a bug in the scan destroys something real with nothing to restore from — and that this release
+already carried a great deal of new deletion. The maker overruled that and asked for it now.
+It is built with the strongest containment in the release, described below.
+
 ---
 
 ## What shipped
@@ -80,6 +88,12 @@ own code.**
   app directory: a vault path that is itself a symlink is an ordinary setup, and there is
   a test proving removal still works for it.
 - `commitAdd` was the last write path without v1.2.1's `vaultDirEscapes` guard.
+- `GetDiffPair` was the last *read* path without it. Its leaf-only `refuseSymlink` stops the
+  final component being a link while every directory above it resolves normally, so
+  `<vault>/bash/x -> $HOME/.ssh` with a manifest path of `x/id_rsa` read a private key and
+  shipped it into the webview labelled as that app's backup. This one was found by review,
+  reported rather than fixed because it sat outside what was asked for, and fixed on the
+  maker's instruction.
 
 The deletion guard is deliberately stricter than `vaultDirEscapes`, which asks only
 whether a path resolves *outside* the vault. That is the right question for reading and
@@ -146,9 +160,30 @@ entry points that take an app name over IPC and join it onto a path now validate
 edit overlay renders at most 300 rows behind a filter — the payload is never capped, since
 that would make files beyond the cap permanently unremovable.
 
-**Not in this release.** Deleting vault orphans (`ScanVaultOrphans` still ships as
-detection only), `GetDiffPair`'s leaf-only symlink check on the vault side, and the
-`/etc`/`/usr` scope change.
+**Deleting what the vault cannot account for.** `ScanVaultOrphans` has reported since v1.2.1
+and nothing could act on it. `RemoveVaultOrphans` is the other half, and it is deliberately the
+most defended call in the program, because it is the only one that deletes a file no manifest
+entry names — there is nothing to check the deletion against afterwards and nothing to restore
+from if it was wrong.
+
+It does not trust the list it is sent. The set is re-derived from disk inside the call, under
+`manifestMu`, immediately before anything is unlinked, and a path that is no longer an orphan is
+refused per file. One property does the work of four bespoke checks: a manifest-backed file, a
+`..` traversal, `manifest.json` itself and a path that never existed are all simply absent from
+the set the scan just built. The lock is not decoration either — `commitAdd` copies every file
+into the vault *before* it saves the manifest, so for the duration of an add its freshly written
+backups are, by the only available definition, orphans. A sweep racing an add would delete the
+very bytes being added.
+
+Two things about symlinks. A link inside the vault is reported as the single entry it is and
+unlinked as one, never followed — `unlink(2)` declines the final component, and there is a test
+asserting the live folder behind such a link keeps its contents. And the walk now resolves the
+vault root before descending, because `WalkDir` lstats its root: a vault path that is itself a
+symlink made the root a non-directory, the walk visited nothing, and every such vault was told
+it was clean. That was an absence reading as an answer, in the one view whose entire job is to
+report what is there.
+
+**Not in this release.** The `/etc`/`/usr` scope change, which is queued next.
 
 ## Icons
 
