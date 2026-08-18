@@ -806,14 +806,64 @@
 .differences-row--vaultDamaged .differences-state {
   color: var(--danger);
 }
-.differences-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 4px;
+/* The comparison block, in place of the single dim line that used to print
+   "system: <date>  vault: last updated <date>". Two columns in the mirror's
+   own direction — live file left, vault right — so the overlay does not teach
+   a second grammar. auto-fit lets them stack rather than crush on a narrow
+   window. */
+.differences-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
   padding-left: 26px;
-  font-size: 11px;
+}
+.differences-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.differences-side-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-dim);
+}
+.differences-side-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.differences-side-size {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.differences-side-absent {
+  font-size: 10px;
+  color: var(--danger);
+}
+/* Outlined rather than filled: the drift colour has to stay legible against
+   whichever background the theme supplies, and a border carries it in both
+   directions where a filled chip would need a second colour choice per
+   theme. */
+.differences-side--newer {
+  border-color: var(--badge-drift);
+}
+.differences-newer {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--badge-drift);
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--badge-drift);
 }
 .differences-diff {
   margin: 8px 0 0 26px;

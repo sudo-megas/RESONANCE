@@ -43,6 +43,13 @@ type FileRow struct {
 	// what it actually holds instead of showing a bare date. 0 when there is
 	// no vault copy.
 	Size int64 `json:"size"`
+
+	// SourceSize is the live file's size. One size was enough while the only
+	// question a row answered was "what does the vault hold". The differences
+	// view asks a comparison question instead, and a comparison showing one
+	// side's size against the other's blank space is the ambiguity that view
+	// exists to remove. 0 when the source is missing.
+	SourceSize int64 `json:"sourceSize"`
 }
 
 // AppRow is one app's entire mirror-row data — every file's live drift
@@ -185,6 +192,7 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 					fr := FileRow{Path: stored, State: "untracked", System: scope == scopeSystem}
 					if info, err := os.Stat(sourceAbs(home, scope, stored)); err == nil {
 						fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
+						fr.SourceSize = info.Size()
 					}
 					row.Files = append(row.Files, fr)
 				}
@@ -236,6 +244,7 @@ func fileDriftRow(home, vaultRoot, appName string, scope pathScope, f ManifestFi
 		return fr
 	}
 	fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
+	fr.SourceSize = info.Size()
 
 	// Until v1.2.1 this function never looked at the vault at all — it
 	// compared the live file against a checksum recorded in manifest.json and
