@@ -5,7 +5,7 @@
 <h1 align="center">RESONANCE</h1>
 
 <p align="center">
-  <img alt="Version"      src="https://img.shields.io/badge/version-v1.2.1-4A9D8E?style=for-the-badge">
+  <img alt="Version"      src="https://img.shields.io/badge/version-v1.2.2-4A9D8E?style=for-the-badge">
   <img alt="Release date" src="https://img.shields.io/badge/released-2026--08--17-4A9D8E?style=for-the-badge">
   <img alt="Licence"      src="https://img.shields.io/badge/licence-GPL--3.0--or--later-6E7B8B?style=for-the-badge">
 </p>
@@ -64,19 +64,19 @@ The binary lands at `build/bin/resonance`.
 
 ### 3.B Arch Linux
 
-**Download it** — `resonance-1.2.1-1-x86_64.pkg.tar.zst` is on the
+**Download it** — `resonance-1.2.2-1-x86_64.pkg.tar.zst` is on the
 [Releases page](https://github.com/sudo-megas/RESONANCE/releases), so there is nothing to
 build:
 
 ```bash
-sudo pacman -U resonance-1.2.1-1-x86_64.pkg.tar.zst
+sudo pacman -U resonance-1.2.2-1-x86_64.pkg.tar.zst
 ```
 
 Or build it yourself as in 3.A, then package what you made:
 
 ```bash
 cd build/packaging && makepkg --noconfirm --nodeps
-sudo pacman -U resonance-1.2.1-1-x86_64.pkg.tar.zst
+sudo pacman -U resonance-1.2.2-1-x86_64.pkg.tar.zst
 ```
 
 **Via AUR** — not published yet. It is planned, but there is no `resonance` in the AUR today,
@@ -84,11 +84,11 @@ and a command you could paste that would simply fail is worse than saying so.
 
 ### 3.C Debian / Ubuntu
 
-**Download it** — `resonance_1.2.1_amd64.deb` is on the
+**Download it** — `resonance_1.2.2_amd64.deb` is on the
 [Releases page](https://github.com/sudo-megas/RESONANCE/releases):
 
 ```bash
-sudo dpkg -i resonance_1.2.1_amd64.deb || sudo apt-get install -f
+sudo dpkg -i resonance_1.2.2_amd64.deb || sudo apt-get install -f
 ```
 
 The `apt-get install -f` fallback only matters if `libwebkit2gtk-4.1-0`/`libgtk-3-0` aren't
