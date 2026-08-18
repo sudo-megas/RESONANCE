@@ -5,8 +5,8 @@
 <h1 align="center">RESONANCE</h1>
 
 <p align="center">
-  <img alt="Version"      src="https://img.shields.io/badge/version-v1.2.2-4A9D8E?style=for-the-badge">
-  <img alt="Release date" src="https://img.shields.io/badge/released-2026--08--17-4A9D8E?style=for-the-badge">
+  <img alt="Version"      src="https://img.shields.io/badge/version-v1.3.0-4A9D8E?style=for-the-badge">
+  <img alt="Release date" src="https://img.shields.io/badge/released-2026--08--18-4A9D8E?style=for-the-badge">
   <img alt="Licence"      src="https://img.shields.io/badge/licence-GPL--3.0--or--later-6E7B8B?style=for-the-badge">
 </p>
 
@@ -26,14 +26,21 @@ always visible before it's a problem. Add an app once; from then on it's a two-p
 what's live, what's backed up, and a single button each way to fix whichever one's behind.
 Fully local: no accounts, no sync server, no network calls of any kind.
 
+Your home folder isn't the only place configuration lives, so RESONANCE also backs up files
+under `/etc` and `/usr`. Backing them up asks for nothing. Putting one back asks for your
+password, once per session, the same way your file manager does when you edit a system file.
+
 ---
 
 ## 2. DEPENDENCIES
 
 **To simply use it — nothing to install by hand beyond the package itself:**
 
-- **Arch Linux** — `webkit2gtk-4.1`, `gtk3`. The package declares these two and no others.
-- **Debian / Ubuntu** — `libwebkit2gtk-4.1-0`, `libgtk-3-0`. Same two libraries only.
+- **Arch Linux** — `webkit2gtk-4.1`, `gtk3`, `polkit`.
+- **Debian / Ubuntu** — `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `pkexec`.
+
+`polkit`/`pkexec` is what asks for your password when a file goes back into `/etc` or `/usr`.
+It is almost certainly already on your system — every desktop uses it.
 
 **To build it yourself:**
 
@@ -58,25 +65,28 @@ sudo pacman -S --needed go nodejs npm gtk3 webkit2gtk-4.1 base-devel pkgconf   #
 # or: sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev              # Debian/Ubuntu
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails build -tags webkit2_41
+go build -o build/bin/resonance-helper ./cmd/resonance-helper
 ```
 
-The binary lands at `build/bin/resonance`.
+Both binaries land in `build/bin/`. The second one is what puts files back into `/etc` and
+`/usr`; a build run from `build/bin/` cannot ask for your password, so that part only works
+from an installed package.
 
 ### 3.B Arch Linux
 
-**Download it** — `resonance-1.2.2-1-x86_64.pkg.tar.zst` is on the
+**Download it** — `resonance-1.3.0-1-x86_64.pkg.tar.zst` is on the
 [Releases page](https://github.com/sudo-megas/RESONANCE/releases), so there is nothing to
 build:
 
 ```bash
-sudo pacman -U resonance-1.2.2-1-x86_64.pkg.tar.zst
+sudo pacman -U resonance-1.3.0-1-x86_64.pkg.tar.zst
 ```
 
 Or build it yourself as in 3.A, then package what you made:
 
 ```bash
 cd build/packaging && makepkg --noconfirm --nodeps
-sudo pacman -U resonance-1.2.2-1-x86_64.pkg.tar.zst
+sudo pacman -U resonance-1.3.0-1-x86_64.pkg.tar.zst
 ```
 
 **Via AUR** — not published yet. It is planned, but there is no `resonance` in the AUR today,
@@ -84,11 +94,11 @@ and a command you could paste that would simply fail is worse than saying so.
 
 ### 3.C Debian / Ubuntu
 
-**Download it** — `resonance_1.2.2_amd64.deb` is on the
+**Download it** — `resonance_1.3.0_amd64.deb` is on the
 [Releases page](https://github.com/sudo-megas/RESONANCE/releases):
 
 ```bash
-sudo dpkg -i resonance_1.2.2_amd64.deb || sudo apt-get install -f
+sudo dpkg -i resonance_1.3.0_amd64.deb || sudo apt-get install -f
 ```
 
 The `apt-get install -f` fallback only matters if `libwebkit2gtk-4.1-0`/`libgtk-3-0` aren't

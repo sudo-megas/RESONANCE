@@ -11,7 +11,7 @@ Location: `/home/megas/RESONANCE/build/docs/CORE.md`
 
 **Name:** RESONANCE — chosen over "Echo". The symbolism: one config file resonating to another, at full strength, byte-identical. Resonance = mirroring, and the app's entire interface is built on that idea.
 
-**What it is:** a tiny, fully local dotfiles backup & restore GUI for Linux. Three functions and only three functions:
+**What it is:** a tiny, fully local configuration backup & restore GUI for Linux — your dotfiles, and the system configuration under `/etc` and `/usr`. Three functions and only three functions: *(Widens the original "dotfiles" wording. Backing a system file up needs no rights at all; putting one back asks for administrator rights, which is the only privileged operation in the program. Added v1.3.0, 2026-08-18. Amendment deployed by megas, 2026-08-18.)*
 
 1. **Backup** — copy chosen config files into a vault.
 2. **Store** — keep them, show them, keep them fresh.
@@ -64,7 +64,7 @@ No sidebar. JADEITE and INDIUM share ~80% of a layout; RESONANCE deliberately do
 
 - **Per-APP organization.** The main window lists APP entries (e.g. `bash`). Each app holds as many files as the user wants (`~/.bashrc`, `~/.bash_history`, ...). Never a flat file dump.
 - **The vault.** Path is user-choosable — any path: another HDD, a USB drive, anywhere. The vault **never modifies original files**. It copies byte-identical into its own directory in a relative layout, only when the user provokes it (add or "update from source (now)").
-- **Relative paths.** The manifest stores `$HOME`-relative paths, never absolute `/home/<name>/...`. At restore time `$HOME` resolves against the *current* machine's user. This is the designed answer to the username caveat: backed up by `megas@mainrig`, restorable by any user on any machine.
+- **Relative paths.** The manifest stores `$HOME`-relative paths, never absolute `/home/<name>/...`. At restore time `$HOME` resolves against the *current* machine's user. This is the designed answer to the username caveat: backed up by `megas@mainrig`, restorable by any user on any machine. **Files under `/etc` and `/usr` are stored absolute, in their own manifest arrays.** The rule's intent survives intact: it exists to solve the username caveat, and `/etc` and `/usr` are the same on every machine and have no per-user form — storing them absolute is what keeps them portable, not what breaks it. They are separate arrays rather than a flag on `Path` so that an older RESONANCE, which knows nothing about roots, is blind to them instead of joining `/etc/alsa/alsa.conf` onto `$HOME` and restoring to the wrong place. *(Added v1.3.0, 2026-08-18. Amendment deployed by megas, 2026-08-18.)*
 - **Restore** is the copy reversed onto the destination machine.
 - **Overwrite rules.** Backup overwrites the vault from source. Restore overwrites the destination. Before either happens, the user is shown the file diff **and both files' created/modified dates**. The final decision is always the user's.
 - **Pre-restore snapshot.** Before a restore overwrites anything, the current files are tucked aside automatically. One "Undo restore" button brings them back.
