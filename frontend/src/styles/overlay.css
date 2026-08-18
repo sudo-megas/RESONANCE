@@ -51,7 +51,11 @@
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  border: 1px solid var(--border);
+  /* --border is tuned for separators drawn *between* things and is close to
+     invisible against a panel background — which, with an opaque fill behind
+     it, left this button with no discernible edge at all in dark themes.
+     --border-strong is the one that reads as an outline. */
+  border: 1px solid var(--border-strong);
   /* Opaque, not transparent. .overlay-panel scrolls, and WebKitGTK draws
      overlay scrollbars — they float above content instead of taking layout
      space, so anything underneath this button shows through it and the
@@ -63,8 +67,8 @@
   z-index: 1;
 }
 .overlay-close:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Theme picker — a fixed 4-column grid (instead of auto-fit, which was
@@ -361,8 +365,11 @@
   margin: 0 0 12px;
   /* Right padding, not zero: WebKitGTK's overlay scrollbar is painted over
      the content box rather than beside it, so without this the last few
-     characters of every row sit underneath it. */
-  padding: 0 12px 0 0;
+     characters of every row sit underneath it. The gutter has to exceed the
+     scrollbar's own width (~13px expanded) by enough to read as a gap — at
+     12px the row's remove button cleared it by a single pixel, which looks
+     exactly like a collision. */
+  padding: 0 22px 0 0;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -959,7 +966,7 @@
 .editapp-remove-list {
   list-style: none;
   margin: 0 0 10px;
-  padding: 0 12px 0 0;
+  padding: 0 22px 0 0;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -1071,7 +1078,7 @@
 .snapshot-list {
   list-style: none;
   margin: 0 0 18px;
-  padding: 0 12px 0 0;
+  padding: 0 22px 0 0;
 }
 .snapshot-row {
   padding: 10px 12px;
@@ -1135,9 +1142,14 @@
 /* The machine-info card as a surface of its own, opened from the VAULT pane
    header. The card itself is the same element the restore preview builds —
    the two must never be able to disagree about what this vault says. */
+/* Deliberately NO position here. .overlay-close is absolutely positioned,
+   so a positioned content div becomes its containing block instead of
+   .overlay-panel — which offsets the button by the panel's 28px padding and
+   drops it below the heading, out of line with every other overlay in the
+   app. This was the only content class in the file that did that. The
+   min-width it also carried was redundant: .overlay-panel already sets one. */
 .machine-info-panel {
-  position: relative;
-  min-width: 340px;
+  display: block;
 }
 .machine-info-note {
   margin: 0 0 14px;
@@ -1165,7 +1177,7 @@
 .orphan-list {
   list-style: none;
   margin: 0 0 12px;
-  padding: 8px 20px 8px 10px;
+  padding: 8px 26px 8px 10px;
   max-height: 180px;
   overflow-y: auto;
   border-radius: 6px;
