@@ -6,13 +6,13 @@
 
 <p align="center">
   <img alt="Version"      src="https://img.shields.io/badge/version-v1.4.0-4A9D8E?style=for-the-badge">
-  <img alt="Release date" src="https://img.shields.io/badge/released-2026--08--18-4A9D8E?style=for-the-badge">
+  <img alt="Release date" src="https://img.shields.io/badge/latest-2026--08--18-4A9D8E?style=for-the-badge">
   <img alt="Licence"      src="https://img.shields.io/badge/licence-GPL--3.0--or--later-6E7B8B?style=for-the-badge">
 </p>
 
 <p align="center">
-  <img alt="Arch Linux package" src="https://img.shields.io/badge/Arch%20Linux-9.7%20MB-1793D1?style=for-the-badge&logo=archlinux&logoColor=white">
-  <img alt="Debian package"     src="https://img.shields.io/badge/Debian-5.7%20MB-A80030?style=for-the-badge&logo=debian&logoColor=white">
+  <img alt="Arch Linux package" src="https://img.shields.io/badge/Arch%20Linux-10.8%20MB-1793D1?style=for-the-badge&logo=archlinux&logoColor=white">
+  <img alt="Debian package"     src="https://img.shields.io/badge/Debian-6.41%20MB-A80030?style=for-the-badge&logo=debian&logoColor=white">
 </p>
 
 <p align="center"><strong>Dotfile syncing that is for "users" not developers.</strong></p>
