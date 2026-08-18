@@ -2,7 +2,7 @@ import { main } from "../wailsjs/go/models";
 import { GetDiffPair } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { renderDiff } from "./diff";
-import { formatDateTime } from "./dates";
+import { formatDateTimeExact } from "./dates";
 import { extractErrorMessage, formatSize } from "./util";
 
 // The per-app differences view: "you say something changed — show me what."
@@ -100,12 +100,14 @@ function buildSide(
 
   const time = document.createElement("span");
   time.className = "differences-side-time";
-  // formatDateTime, not formatDate. dates.ts already explains why day
-  // granularity is not enough when two moments fall on the same day, and that
-  // is the ordinary case here: a file is usually edited the same day it was
-  // backed up. At day granularity both sides printed "18 08 2026", and the
-  // view whose whole job is "which of these is newer" answered nothing.
-  time.textContent = formatDateTime(when);
+  // Seconds, not the minutes formatDateTime gives and emphatically not the
+  // days formatDate gave. A file is usually edited the same day it was backed
+  // up, so at day granularity both sides printed "18 08 2026" and the view
+  // whose whole job is "which of these is newer" answered nothing. Minutes
+  // move the same failure one level down: a file edited twenty seconds after
+  // its backup prints an identical HH:MM on both sides, with a "newer" marker
+  // beside two strings that look the same.
+  time.textContent = formatDateTimeExact(when);
   side.appendChild(time);
 
   const bytes = document.createElement("span");
