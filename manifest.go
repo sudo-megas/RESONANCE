@@ -46,8 +46,25 @@ type ManifestApp struct {
 	// then saves this manifest strips every tracked folder. Nothing is
 	// corrupted and no backed-up file is lost — the materialised Files
 	// entries survive untouched — but the folders stop being tracked and
-	// nothing tells the user.
+	// nothing tells the user. SystemFiles and SystemDirs below inherit that
+	// behaviour exactly.
 	Dirs []string `json:"dirs,omitempty"`
+
+	// SystemFiles and SystemDirs hold ABSOLUTE paths under /etc or /usr,
+	// added in v1.3.0. Everything above is $HOME-relative; these are not, and
+	// the separation is the point rather than an inconvenience.
+	//
+	// The obvious alternative — one Files array whose Path may be absolute,
+	// plus a field saying which — is the one shape that must not be used. An
+	// older RESONANCE knows nothing about roots, so it would read
+	// "/etc/alsa/alsa.conf" as $HOME-relative, join it onto $HOME, and
+	// restore into ~/etc/alsa/alsa.conf. Silently writing a file to the wrong
+	// place is a worse failure than not knowing about it at all. Separate
+	// arrays make an old binary blind instead of wrong: it drops these
+	// fields on unmarshal and sees an app with fewer files, the same lossy
+	// downgrade Dirs already documents.
+	SystemFiles []ManifestFile `json:"systemFiles,omitempty"`
+	SystemDirs  []string       `json:"systemDirs,omitempty"`
 }
 
 type ManifestFile struct {
@@ -323,6 +340,83 @@ func relativeUnder(absPath, base string) (string, error) {
 		return "", errors.New("outside your home folder")
 	}
 	return rel, nil
+}
+
+// systemRoots are the absolute roots outside $HOME that a backed-up file may
+// live under, added in v1.3.0. Fixed rather than user-configurable: the ask
+// was /etc and /usr specifically, and every additional root is one more place
+// a mistaken click can reach.
+//
+// /run was considered and dropped. Its useful half — /run/media, where drives
+// mount — is a vault location, which already works and is a different axis
+// entirely; its other half is a tmpfs rebuilt from scratch at every boot, so
+// anything backed up from it reads as missing on the next start, forever.
+var systemRoots = []string{"/etc", "/usr"}
+
+// systemVaultSegment is the reserved first path segment under which system
+// files live inside an app's vault folder:
+//
+//	vault/<app>/.system/etc/alsa/alsa.conf
+//
+// It exists because /etc/alsa/alsa.conf and $HOME/etc/alsa/alsa.conf would
+// otherwise want the same slot. Reserving a segment leaves every existing
+// vault valid and needing no migration — nothing has ever written .system —
+// at the cost of exactly one refusal: a home file whose own path starts with
+// .system/ can't be tracked. validAppName's reserved "manifest.json" is the
+// precedent for spending a name that way.
+const systemVaultSegment = ".system"
+
+type pathScope int
+
+const (
+	scopeHome pathScope = iota
+	scopeSystem
+)
+
+// classifySource decides which allowed root an absolute source path belongs
+// to, and returns the string the manifest stores for it.
+//
+// It returns a scope rather than normalising both cases into one string,
+// because the two genuinely store different things. A home file is stored
+// $HOME-relative so that a vault written by megas@mainrig restores for any
+// user on any machine — CORE §4, and the entire answer to the username
+// caveat. A system file has no per-user form to be relative to:
+// /etc/alsa/alsa.conf is that same path on every machine, so storing it
+// absolute is what keeps it portable rather than what breaks it.
+func classifySource(absPath, home string) (pathScope, string, error) {
+	if rel, err := relativeUnder(absPath, home); err == nil {
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == systemVaultSegment || strings.HasPrefix(relSlash, systemVaultSegment+"/") {
+			return 0, "", fmt.Errorf(
+				"%s can't be tracked — RESONANCE stores system files under %s inside the vault, so that name is reserved",
+				absPath, systemVaultSegment)
+		}
+		return scopeHome, relSlash, nil
+	}
+	for _, root := range systemRoots {
+		if _, err := relativeUnder(absPath, root); err == nil {
+			return scopeSystem, filepath.ToSlash(filepath.Clean(absPath)), nil
+		}
+	}
+	return 0, "", outsideAllowedRoots(absPath)
+}
+
+// outsideAllowedRoots is the single sentence spoken wherever a path is
+// refused for being outside every root RESONANCE reads from. One function so
+// the three roots are never listed inconsistently in two different messages.
+func outsideAllowedRoots(absPath string) error {
+	return fmt.Errorf(
+		"%s is outside your home folder, /etc and /usr — those are the places RESONANCE backs up",
+		absPath)
+}
+
+// systemVaultRel maps an absolute system path to its slash-separated place
+// inside an app's vault folder. /etc/alsa/alsa.conf becomes
+// .system/etc/alsa/alsa.conf.
+func systemVaultRel(absPath string) string {
+	clean := filepath.Clean(absPath)
+	trimmed := strings.TrimPrefix(clean, string(filepath.Separator))
+	return filepath.ToSlash(filepath.Join(systemVaultSegment, trimmed))
 }
 
 func validAppName(name string) error {
