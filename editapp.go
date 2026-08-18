@@ -9,9 +9,9 @@ import (
 )
 
 // RemoveResult reports what a removal actually did, entry by entry — the
-// same shape as RestoreResult (restore.go) and UndoResult (snapshot.go), and
-// for the same reason: one entry's problem must not decide the fate of every
-// other entry in the same call.
+// same shape as RestoreResult (restore.go), and for the same reason: one
+// entry's problem must not decide the fate of every other entry in the same
+// call.
 type RemoveResult struct {
 	RemovedFiles []string         `json:"removedFiles"`
 	RemovedDirs  []string         `json:"removedDirs"`
@@ -567,29 +567,15 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 		return result, err
 	}
 
-	// The undo snapshot is deliberately NOT discarded here.
-	//
-	// Removing an app is a vault-side operation, and this overlay's headline
-	// promise is that nothing in $HOME changes. A snapshot is the only thing
-	// that can revert a PRIOR change to $HOME, and UndoRestore never reads
-	// the vault — so the snapshot stays exactly as valid and exactly as
-	// useful after its app leaves the vault as it was before. Deleting it
-	// here would be the one genuinely destructive thing this call does to
-	// the user's home folder, done silently, in the name of tidiness.
-	//
-	// The name-reuse hazard that once justified discarding it is handled
-	// properly now: snapshots carry the vault they were taken from, and
-	// GetUndoInfo flags a mismatch as Stale so the offer is labelled rather
-	// than blindly presented. ListUndoSnapshots is what keeps this one
-	// reachable, since after removal it has no app row left to hang off, and
-	// DiscardUndoSnapshot is how the user throws it away on purpose.
+	// Nothing in $HOME is touched here, which is this overlay's headline
+	// promise: removing an app is entirely a vault-side operation.
 
 	recordActivity("remove", name, summarizeRemoveActivity(result))
 	return result, nil
 }
 
-// RenameApp changes an app's name, moving its vault folder and its undo
-// snapshot with it so nothing is left keyed to the old name.
+// RenameApp changes an app's name, moving its vault folder with it so nothing
+// is left keyed to the old name.
 func (a *App) RenameApp(oldName, newName string) error {
 	manifestMu.Lock()
 	defer manifestMu.Unlock()
@@ -645,7 +631,6 @@ func (a *App) RenameApp(oldName, newName string) error {
 		}
 		return err
 	}
-	renameUndoSnapshot(oldName, newName)
 	// "edit", not "remove": the activity log is the one surface that records
 	// what this app has done to the user's data, and a rename rendered beside
 	// a delete icon reads as a deletion that never happened.

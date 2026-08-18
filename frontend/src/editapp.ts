@@ -2,7 +2,6 @@ import { main } from "../wailsjs/go/models";
 import {
   GetSettings,
   GetAppComposition,
-  GetUndoInfo,
   AddToApp,
   RemoveFromApp,
   RemoveApp,
@@ -614,17 +613,7 @@ export async function openEditApp(appName: string): Promise<void> {
       removeArmed = true;
       const n = comp.files.length;
       removeAppBtn.textContent = `Confirm — deletes ${n === 1 ? "1 vault copy" : `${n.toLocaleString()} vault copies`}`;
-      let msg = `This deletes the vault's whole folder for ${name}. Your files in ~ are not touched.`;
-      try {
-        const undo = await GetUndoInfo(name);
-        if (undo.available) {
-          msg += ` The pending undo snapshot for ${name} is kept — find it under Recent activity.`;
-        }
-      } catch {
-        // Advisory only; failing it must not block the removal or leave the
-        // button armed with no explanation.
-      }
-      errorEl.textContent = msg;
+      errorEl.textContent = `This deletes the vault's whole folder for ${name}. Your files in ~ are not touched.`;
       return;
     }
     removeAppBtn.disabled = true;

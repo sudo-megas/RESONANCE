@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -158,15 +157,13 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 // Each file's state is recomputed here via fileDriftRow rather than
 // trusting whatever the frontend's preview fetched earlier — opening the
 // preview and clicking Restore aren't atomic, so the commit re-checks
-// instead of acting on a possibly-stale snapshot.
+// instead of acting on a picture the frontend drew earlier.
 //
-// Before any file is mutated, its current state is captured into a
-// pending undo directory (never the canonical one — see the commit step
-// below), and that whole snapshot is committed to canonical storage
-// before any file is actually written to the live system. Capture
-// failure is fail-closed: that file is skipped, same as any other
-// per-file failure, so a file is never mutated without its prior state
-// safely committed first.
+// Nothing is tucked aside first. Until v1.4.0 every file's prior state was
+// captured and committed before any of them were written, so that one button
+// could put it all back; that button is gone and so is the capture. A restore
+// now does exactly what it says and nothing else, and the preview and the diff
+// are where it gets reconsidered.
 func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	result := RestoreResult{New: []string{}, Overwritten: []string{}, Skipped: []string{}, Failed: []RestoreFailure{}}
 
@@ -194,21 +191,11 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		return result, errors.New("no such app")
 	}
 
-	undoRoot, err := undoRootDir()
-	if err != nil {
-		return result, err
-	}
-	canonicalUndoDir := filepath.Join(undoRoot, name)
-	pendingUndoDir := filepath.Join(undoRoot, name+".pending")
-	// Abandoned by a previous run that never reached the commit step below
-	// (crash, or the final writeSnapshot itself failing) — the old
-	// canonical snapshot, if any, was left untouched, so this is just
-	// clearing stale scratch space, never data anyone still needs.
-	_ = os.RemoveAll(pendingUndoDir)
-
-	// pendingMutation is a file that survived capture and is queued to be
-	// written to the live system — but only after the snapshot covering
-	// it has been durably committed (see below).
+	// pendingMutation is a file that has passed every check and is queued to
+	// be written to the live system. Collecting first and writing second is
+	// kept from the days when a snapshot had to be committed in between: it
+	// still means a bad path anywhere in the app is found before any file is
+	// written, rather than half way through.
 	type pendingMutation struct {
 		path       string
 		destPath   string
@@ -217,7 +204,6 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		scope      pathScope
 	}
 
-	var entries []SnapshotEntry
 	var mutations []pendingMutation
 
 	app := m.Apps[appIndex]
@@ -226,16 +212,16 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	// One body over both scopes, for the same reason UpdateFromSource shares
 	// one: a system file must not be able to reach the live filesystem on a
 	// different set of checks from a home file. Everything here — reading the
-	// vault copy, capturing the undo snapshot — is unprivileged. The single
-	// privileged step is the write itself, further down.
+	// vault copy, checking the path — is unprivileged. The single privileged
+	// step is the write itself, further down.
 	collect := func(scope pathScope, f ManifestFile) {
 		row := fileDriftRow(home, settings.VaultPath, app.Name, scope, f)
 		if row.State == "ok" {
 			result.Skipped = append(result.Skipped, f.Path)
 			return
 		}
-		// Nothing to restore from, so say that plainly instead of capturing
-		// an undo snapshot and then failing on the copy with a bare errno.
+		// Nothing to restore from, so say that plainly instead of reaching the
+		// copy and failing there with a bare errno.
 		if row.State == "vaultMissing" || row.State == "vaultDamaged" {
 			reason := "the vault's copy of this file is missing — update from source to back it up again"
 			if row.State == "vaultDamaged" {
@@ -255,13 +241,6 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			return
 		}
 
-		entry, err := captureEntry(pendingUndoDir, scope, f.Path, destPath)
-		if err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
-			return
-		}
-		entries = append(entries, entry)
-
 		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(scope, f.Path)))
 		mutations = append(mutations, pendingMutation{
 			path:       f.Path,
@@ -278,39 +257,11 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		collect(scopeSystem, f)
 	}
 
-	// Stage-then-commit: the snapshot covering every file queued above is
-	// committed to canonical storage BEFORE any of those files are
-	// touched on the live system — not after, as a first pass of this
-	// function once did. Committing after mutation left a window where a
-	// crash or commit failure between the two could leave a stale,
-	// still-"available" snapshot silently reporting success while undo
-	// would replay the wrong (older) bytes over the newly-restored ones.
-	// Committing first means: no live file is ever mutated without its
-	// prior state already safely in place as the thing undo will restore.
-	//
-	// A fully no-op restore (nothing captured) never touches an existing
-	// snapshot — that's what makes retention "keep 1 per app" without a
-	// separate prune step.
-	if len(entries) > 0 {
-		snap := RestoreSnapshot{
-			App:       name,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			Entries:   entries,
-			VaultPath: settings.VaultPath,
-		}
-		if err := commitSnapshot(pendingUndoDir, canonicalUndoDir, snap); err != nil {
-			// The prior state couldn't be durably saved, so none of these
-			// files are mutated at all — an incomplete restore is safe to
-			// re-run; a live mutation with no committed snapshot behind
-			// it is not.
-			for _, mut := range mutations {
-				result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
-			}
-			recordActivity("restore", name, summarizeRestoreActivity(result))
-			return result, nil
-		}
-	}
-
+	// A restore is final. Nothing is tucked aside first and there is no way
+	// back from here, which is the whole shape of the app after v1.4.0: one
+	// direction into the vault, one direction out of it. The preview and the
+	// diff are where a restore is reconsidered, and they are before this
+	// point, not after it.
 	for _, mut := range mutations {
 		if err := writeRestoredFile(mut.scope, mut.vaultFile, mut.destPath); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})

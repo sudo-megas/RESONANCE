@@ -704,7 +704,7 @@ func summarizeOrphanActivity(result RemoveResult) string {
 
 // summarizeAddActivity builds AddApp's activity-log summary from the file
 // count already in scope at its call site — AddApp has no result struct to
-// draw from, unlike Update/Restore/Undo.
+// draw from, unlike Update/Restore.
 func summarizeAddActivity(name string, fileCount int) string {
 	return fmt.Sprintf("Added %s (%d files)", name, fileCount)
 }

@@ -353,7 +353,7 @@ func (s *session) remove(p string, all bool) error {
 }
 
 // symlink recreates a link that was there before a restore overwrote it —
-// the "symlink" kind of an undo snapshot entry. The target is written
+// a symlink that a restore has to put back. The target is written
 // verbatim and never resolved: what is being restored is the link, not
 // whatever it happens to point at.
 func (s *session) symlink(p, link string) error {

@@ -34,8 +34,8 @@ type ActivityLog struct {
 	Entries []ActivityEntry `json:"entries"`
 }
 
-// activityLogPath is resonanceStateDir()/activity.json — sibling to
-// undoRootDir(), both built on the same shared XDG resolution.
+// activityLogPath is resonanceStateDir()/activity.json. Since v1.4.0 removed
+// undo it is the only thing in that directory.
 func activityLogPath() (string, error) {
 	dir, err := resonanceStateDir()
 	if err != nil {
@@ -44,8 +44,8 @@ func activityLogPath() (string, error) {
 	return filepath.Join(dir, activityFileName), nil
 }
 
-// loadActivityLog mirrors readSnapshot's philosophy: any failure (missing,
-// corrupt, unreadable) reads as an empty log, never a crash. Entries is
+// loadActivityLog treats any failure (missing, corrupt, unreadable) as an
+// empty log, never a crash. A log is a convenience; nothing depends on it. Entries is
 // always normalized to non-nil (matches UpdateResult's established "nil
 // slice marshals to JSON null" convention) so GetRecentActivity never hands
 // the frontend a null that breaks entries.length.
@@ -70,11 +70,10 @@ func loadActivityLog() ActivityLog {
 	return log
 }
 
-// saveActivityLog writes the log with a plain os.WriteFile at 0644 —
-// matches saveManifest's existing simplicity, not snapshot.go's
-// atomic-rename pattern: there's no crash-safety requirement for this
-// feature, so the extra machinery would be over-engineering. MkdirAll
-// covers the one-time case where resonanceStateDir() doesn't exist yet.
+// saveActivityLog writes the log with a plain os.WriteFile at 0644, matching
+// saveManifest's simplicity. There is no crash-safety requirement for a log,
+// so an atomic-rename dance would be over-engineering. MkdirAll covers the
+// one-time case where resonanceStateDir() doesn't exist yet.
 func saveActivityLog(log ActivityLog) error {
 	path, err := activityLogPath()
 	if err != nil {

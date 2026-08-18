@@ -164,8 +164,8 @@ func rejectNested(oldPath, newPath string) error {
 // migrateVault, and the folder picker's default landing directory IS $HOME,
 // so "Copy the vault here, change my mind, Move it to the real drive" ends
 // with os.RemoveAll("/home/you"). Pointing the vault at ~/.local/state would
-// likewise have Move delete every undo snapshot for every app — including the
-// snapshots that are supposed to be the safety net.
+// likewise have Move delete RESONANCE's own activity log, which is the only
+// record of what the program has done to your files.
 //
 // The check runs on the symlink-resolved path so that ~/docs -> /home/you is
 // caught as readily as /home/you itself.
@@ -186,7 +186,7 @@ func rejectDangerousVaultPath(path string) error {
 	}
 	if stateDir, err := resonanceStateDir(); err == nil {
 		if containsPath(resolved, resolveDir(stateDir)) {
-			return errors.New("that folder holds RESONANCE's own undo history — choose somewhere else")
+			return errors.New("that folder holds RESONANCE's own activity log — choose somewhere else")
 		}
 	}
 	if cfg, err := os.UserConfigDir(); err == nil {

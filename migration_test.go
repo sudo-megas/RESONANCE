@@ -114,8 +114,8 @@ func TestMigrateVault_RefusesSymlinkToHome(t *testing.T) {
 	}
 }
 
-// TestMigrateVault_RefusesStateDirAsDestination guards the undo snapshots.
-// A vault at ~/.local/state would have Move delete every snapshot for every
+// TestMigrateVault_RefusesStateDirAsDestination guards the activity log.
+// A vault at ~/.local/state would have Move delete every record for every
 // app — the safety net removing itself.
 func TestMigrateVault_RefusesStateDirAsDestination(t *testing.T) {
 	a, _, _ := newRestoreFixture(t)
