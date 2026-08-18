@@ -6,8 +6,16 @@ export function AddApp(arg1, arg2) {
   return window['go']['main']['App']['AddApp'](arg1, arg2);
 }
 
+export function AddToApp(arg1, arg2) {
+  return window['go']['main']['App']['AddToApp'](arg1, arg2);
+}
+
 export function AdoptVaultPath(arg1) {
   return window['go']['main']['App']['AdoptVaultPath'](arg1);
+}
+
+export function CheckVaultDir() {
+  return window['go']['main']['App']['CheckVaultDir']();
 }
 
 export function ChooseVaultPath() {
@@ -16,6 +24,14 @@ export function ChooseVaultPath() {
 
 export function CopyVaultTo(arg1) {
   return window['go']['main']['App']['CopyVaultTo'](arg1);
+}
+
+export function DiscardUndoSnapshot(arg1) {
+  return window['go']['main']['App']['DiscardUndoSnapshot'](arg1);
+}
+
+export function GetAppComposition(arg1) {
+  return window['go']['main']['App']['GetAppComposition'](arg1);
 }
 
 export function GetDiffPair(arg1, arg2) {
@@ -46,6 +62,10 @@ export function GetUndoInfo(arg1) {
   return window['go']['main']['App']['GetUndoInfo'](arg1);
 }
 
+export function ListUndoSnapshots() {
+  return window['go']['main']['App']['ListUndoSnapshots']();
+}
+
 export function MoveVaultTo(arg1) {
   return window['go']['main']['App']['MoveVaultTo'](arg1);
 }
@@ -54,8 +74,36 @@ export function PickFiles() {
   return window['go']['main']['App']['PickFiles']();
 }
 
+export function PickFolders() {
+  return window['go']['main']['App']['PickFolders']();
+}
+
+export function PreviewPaths(arg1) {
+  return window['go']['main']['App']['PreviewPaths'](arg1);
+}
+
+export function PreviewUntrackDir(arg1, arg2) {
+  return window['go']['main']['App']['PreviewUntrackDir'](arg1, arg2);
+}
+
 export function ProbeVaultPath(arg1) {
   return window['go']['main']['App']['ProbeVaultPath'](arg1);
+}
+
+export function RemoveApp(arg1) {
+  return window['go']['main']['App']['RemoveApp'](arg1);
+}
+
+export function RemoveFromApp(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RemoveFromApp'](arg1, arg2, arg3);
+}
+
+export function RemoveVaultOrphans(arg1) {
+  return window['go']['main']['App']['RemoveVaultOrphans'](arg1);
+}
+
+export function RenameApp(arg1, arg2) {
+  return window['go']['main']['App']['RenameApp'](arg1, arg2);
 }
 
 export function RestoreApp(arg1) {
@@ -66,10 +114,22 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
+export function ScanVaultOrphans() {
+  return window['go']['main']['App']['ScanVaultOrphans']();
+}
+
 export function UndoRestore(arg1) {
   return window['go']['main']['App']['UndoRestore'](arg1);
 }
 
+export function UntrackDir(arg1, arg2) {
+  return window['go']['main']['App']['UntrackDir'](arg1, arg2);
+}
+
 export function UpdateFromSource(arg1) {
   return window['go']['main']['App']['UpdateFromSource'](arg1);
+}
+
+export function UseVaultPath(arg1) {
+  return window['go']['main']['App']['UseVaultPath'](arg1);
 }

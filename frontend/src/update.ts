@@ -40,10 +40,25 @@ function buildFileList(entries: ConfirmEntry[], showAppName: boolean): HTMLUList
 
     const dates = document.createElement("span");
     dates.className = "update-confirm-date";
-    dates.textContent =
-      file.state === "missing"
-        ? "source missing — will be skipped"
-        : `${formatDate(file.sourceModified)} → ${formatLastUpdated(file.vaultModified)}`;
+    // Each state gets its own line rather than falling through to the
+    // date-arrow-date form, which would render an empty right-hand side for
+    // a file that has no vault copy to date.
+    switch (file.state) {
+      case "missing":
+        dates.textContent = "source missing — will be skipped";
+        break;
+      case "untracked":
+        dates.textContent = `${formatDate(file.sourceModified)} → not backed up yet`;
+        break;
+      case "vaultMissing":
+        dates.textContent = `${formatDate(file.sourceModified)} → backup missing, will be replaced`;
+        break;
+      case "vaultDamaged":
+        dates.textContent = `${formatDate(file.sourceModified)} → backup doesn't match, will be replaced`;
+        break;
+      default:
+        dates.textContent = `${formatDate(file.sourceModified)} → ${formatLastUpdated(file.vaultModified)}`;
+    }
 
     li.appendChild(path);
     li.appendChild(dates);
@@ -55,13 +70,25 @@ function buildFileList(entries: ConfirmEntry[], showAppName: boolean): HTMLUList
 function summarizeResults(results: main.UpdateResult[]): string {
   let updated = 0;
   let missing = 0;
+  let blocked = 0;
   for (const r of results) {
     updated += r.updated.length;
     missing += r.missing.length;
+    // Older bindings had no `blocked` field; a manifest saved by this build
+    // and read by an older one is the same shape, so tolerate its absence
+    // rather than rendering "undefined".
+    blocked += r.blocked?.length ?? 0;
   }
   const parts: string[] = [];
   if (updated > 0) parts.push(updated === 1 ? "1 file updated" : `${updated} files updated`);
   if (missing > 0) parts.push(missing === 1 ? "1 source missing" : `${missing} sources missing`);
+  if (blocked > 0) {
+    parts.push(
+      blocked === 1
+        ? "1 file couldn't be written — something in the vault points outside it"
+        : `${blocked} files couldn't be written — something in the vault points outside it`,
+    );
+  }
   return parts.length === 0 ? "Already up to date" : parts.join(", ");
 }
 

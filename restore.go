@@ -122,6 +122,15 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 	if err := refuseSymlink(vaultAbs); err != nil {
 		return DiffPair{}, err
 	}
+	// refuseSymlink declines only the final component; every directory above
+	// it is resolved normally. <vault>/bash/x -> $HOME/.ssh with a manifest
+	// path of "x/id_rsa" would therefore read a private key and ship it into
+	// the webview labelled as this app's vault copy. This is the same
+	// resolved-containment question v1.2.1 answered for every other read and
+	// write, asked here for the last read path that was still missing it.
+	if vaultDirEscapes(settings.VaultPath, vaultAbs) {
+		return DiffPair{}, errors.New("can't read the vault copy — something in the vault points outside it")
+	}
 
 	return DiffPair{
 		Live:  readFileContents(liveAbs),
@@ -201,10 +210,21 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	var mutations []pendingMutation
 
 	app := m.Apps[appIndex]
+	vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 	for _, f := range app.Files {
-		row := fileDriftRow(home, f)
+		row := fileDriftRow(home, settings.VaultPath, app.Name, f)
 		if row.State == "ok" {
 			result.Skipped = append(result.Skipped, f.Path)
+			continue
+		}
+		// Nothing to restore from, so say that plainly instead of capturing
+		// an undo snapshot and then failing on the copy with a bare errno.
+		if row.State == "vaultMissing" || row.State == "vaultDamaged" {
+			reason := "the vault's copy of this file is missing — update from source to back it up again"
+			if row.State == "vaultDamaged" {
+				reason = "the vault's copy of this file doesn't match what was backed up — update from source to replace it"
+			}
+			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: reason})
 			continue
 		}
 
@@ -221,7 +241,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		}
 		entries = append(entries, entry)
 
-		vaultFile := filepath.Join(settings.VaultPath, app.Name, filepath.FromSlash(f.Path))
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
 		mutations = append(mutations, pendingMutation{
 			path:       f.Path,
 			destPath:   destPath,
@@ -248,6 +268,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 			App:       name,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			Entries:   entries,
+			VaultPath: settings.VaultPath,
 		}
 		if err := commitSnapshot(pendingUndoDir, canonicalUndoDir, snap); err != nil {
 			// The prior state couldn't be durably saved, so none of these

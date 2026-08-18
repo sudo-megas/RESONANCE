@@ -4,11 +4,19 @@ import {main} from '../models';
 
 export function AddApp(arg1:string,arg2:Array<string>):Promise<void>;
 
+export function AddToApp(arg1:string,arg2:Array<string>):Promise<void>;
+
 export function AdoptVaultPath(arg1:string):Promise<void>;
+
+export function CheckVaultDir():Promise<main.VaultDirStatus>;
 
 export function ChooseVaultPath():Promise<string>;
 
 export function CopyVaultTo(arg1:string):Promise<void>;
+
+export function DiscardUndoSnapshot(arg1:string):Promise<void>;
+
+export function GetAppComposition(arg1:string):Promise<main.AppComposition>;
 
 export function GetDiffPair(arg1:string,arg2:string):Promise<main.DiffPair>;
 
@@ -24,16 +32,38 @@ export function GetSettings():Promise<main.Settings>;
 
 export function GetUndoInfo(arg1:string):Promise<main.UndoInfo>;
 
+export function ListUndoSnapshots():Promise<Array<main.SnapshotInfo>>;
+
 export function MoveVaultTo(arg1:string):Promise<void>;
 
 export function PickFiles():Promise<Array<string>>;
 
+export function PickFolders():Promise<Array<string>>;
+
+export function PreviewPaths(arg1:Array<string>):Promise<main.PathPreview>;
+
+export function PreviewUntrackDir(arg1:string,arg2:string):Promise<main.UntrackPreview>;
+
 export function ProbeVaultPath(arg1:string):Promise<main.VaultProbe>;
+
+export function RemoveApp(arg1:string):Promise<main.RemoveResult>;
+
+export function RemoveFromApp(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<main.RemoveResult>;
+
+export function RemoveVaultOrphans(arg1:Array<string>):Promise<main.RemoveResult>;
+
+export function RenameApp(arg1:string,arg2:string):Promise<void>;
 
 export function RestoreApp(arg1:string):Promise<main.RestoreResult>;
 
 export function SaveSettings(arg1:main.Settings):Promise<void>;
 
+export function ScanVaultOrphans():Promise<main.OrphanReport>;
+
 export function UndoRestore(arg1:string):Promise<main.UndoResult>;
 
+export function UntrackDir(arg1:string,arg2:string):Promise<void>;
+
 export function UpdateFromSource(arg1:string):Promise<main.UpdateResult>;
+
+export function UseVaultPath(arg1:string):Promise<void>;

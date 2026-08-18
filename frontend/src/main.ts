@@ -2,14 +2,20 @@ import "./styles/theme.css";
 import "./styles/layout.css";
 import "./styles/overlay.css";
 
-import { GetSettings } from "../wailsjs/go/main/App";
+import { GetSettings, CheckVaultDir } from "../wailsjs/go/main/App";
 import { loadPersistedTheme, openThemePicker } from "./theme-picker";
 import { openAbout } from "./about";
 import { openRecentActivity } from "./activity";
-import { openVaultPrompt, openChangePath, refreshVaultPathDisplay } from "./vault";
+import {
+  openVaultPrompt,
+  openChangePath,
+  refreshVaultPathDisplay,
+  openVaultRecovery,
+} from "./vault";
 import { openAddApp } from "./addapp";
 import { refreshMirror, getDriftedApps } from "./rows";
 import { openUpdateAllConfirm } from "./update";
+import { openMachineInfo } from "./machineinfo";
 
 async function init(): Promise<void> {
   await loadPersistedTheme();
@@ -18,6 +24,7 @@ async function init(): Promise<void> {
   document.getElementById("about-btn")!.addEventListener("click", () => openAbout());
   document.getElementById("activity-btn")!.addEventListener("click", () => openRecentActivity());
   document.getElementById("vault-path-btn")!.addEventListener("click", () => openChangePath());
+  document.getElementById("vault-info-btn")!.addEventListener("click", () => void openMachineInfo());
   document.getElementById("add-app-btn")!.addEventListener("click", () => openAddApp());
   document.getElementById("update-all-btn")!.addEventListener("click", async () => {
     // getDriftedApps() reads the last-rendered mirror snapshot, which can
@@ -34,6 +41,17 @@ async function init(): Promise<void> {
 
   if (!settings.vaultPath) {
     await openVaultPrompt();
+  } else {
+    // Checked before the first refresh, so a missing drive is met with a way
+    // out rather than an error toast over an empty mirror that reads as
+    // "you have no apps". Only a directory-level failure opens this; a vault
+    // that is present but has an unreadable manifest stays a dismissable
+    // message with the app usable, which is what it has always been.
+    const dirStatus = await CheckVaultDir();
+    if (!dirStatus.reachable) {
+      openVaultRecovery(dirStatus, false);
+      return;
+    }
   }
 
   await refreshMirror();

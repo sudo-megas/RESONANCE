@@ -51,14 +51,24 @@
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent;
+  /* --border is tuned for separators drawn *between* things and is close to
+     invisible against a panel background — which, with an opaque fill behind
+     it, left this button with no discernible edge at all in dark themes.
+     --border-strong is the one that reads as an outline. */
+  border: 1px solid var(--border-strong);
+  /* Opaque, not transparent. .overlay-panel scrolls, and WebKitGTK draws
+     overlay scrollbars — they float above content instead of taking layout
+     space, so anything underneath this button shows through it and the
+     scrollbar itself can pass across it. An opaque chip keeps the glyph
+     readable whatever is behind it, in every theme. */
+  background: var(--overlay-panel);
   color: var(--text-dim);
   cursor: pointer;
+  z-index: 1;
 }
 .overlay-close:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Theme picker — a fixed 4-column grid (instead of auto-fit, which was
@@ -275,6 +285,66 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+/* Two pickers side by side. The portal can't return a mixed file+folder
+   selection, so the two dialogs are separate by necessity, not by choice. */
+.addapp-choose-row {
+  display: flex;
+  gap: 8px;
+}
+.addapp-preview {
+  margin: 0 0 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.addapp-file-row--folder .addapp-file-path {
+  color: var(--accent);
+}
+/* Used by the vault recovery and migration surfaces for the sentence that
+   explains a consequence, as distinct from the status line that reports an
+   outcome. */
+.vault-decision-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.restore-report-summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.restore-report-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.restore-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.restore-report-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.restore-report-reason {
+  font-size: 11px;
+  color: var(--danger);
+}
+.restore-report-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .addapp-choose-files-btn {
   padding: 8px 14px;
   margin: 0 0 12px;
@@ -293,7 +363,14 @@
 .addapp-filelist {
   list-style: none;
   margin: 0 0 12px;
-  padding: 0;
+  /* Right padding, not zero: WebKitGTK's overlay scrollbar is painted over
+     the content box rather than beside it, so without this the last few
+     characters of every row sit underneath it. The gutter has to exceed the
+     scrollbar's own width (~13px expanded) by enough to read as a gap. 12px
+     cleared it by a single pixel and 22px was still tight against the row's
+     remove button, so the gutter is deliberately generous rather than
+     minimal — the scrollbar needs room, not just non-overlap. */
+  padding: 0 34px 0 0;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -306,6 +383,10 @@
   border-bottom: 1px solid var(--border);
 }
 .addapp-file-path {
+  /* A flex item defaults to min-width:auto, which refuses to shrink below its
+     own content — so without this the ellipsis never engages and a long path
+     pushes the rest of the row out past the edge instead of truncating. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -641,6 +722,114 @@
   font-style: italic;
 }
 
+/* Per-app differences overlay. Deliberately built from the same parts as the
+   restore preview above — same list bounds, same disclosure triangle, same
+   diff tokens — because CORE.md asks for one overlay grammar, not a second
+   dialect that happens to show similar things. */
+.differences-summary {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.differences-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.differences-row {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.differences-row-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.differences-row-toggle {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.differences-row-toggle::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform 150ms ease;
+  display: block;
+}
+.differences-row-toggle--expanded::before {
+  transform: rotate(90deg);
+}
+.differences-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.differences-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.differences-row--drifted .differences-state {
+  color: var(--badge-drift);
+}
+.differences-row--missing .differences-state,
+.differences-row--vaultMissing .differences-state,
+.differences-row--vaultDamaged .differences-state {
+  color: var(--danger);
+}
+.differences-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding-left: 26px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.differences-diff {
+  margin: 8px 0 0 26px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* The signs mean the opposite of what they mean in the restore preview, so
+   they are labelled rather than left to be inferred. */
+.differences-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.differences-legend-item--vault {
+  color: var(--danger);
+}
+.differences-legend-item--system {
+  color: var(--diff-add);
+}
+
 .restore-confirm-gate {
   display: flex;
   align-items: flex-start;
@@ -691,6 +880,339 @@
 }
 .restore-confirm-commit-btn:disabled,
 .restore-confirm-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+
+/* Edit-app overlay. The add half reuses addapp's classes verbatim and so
+   needs nothing here; what follows is the removal half and the small amount
+   of structure the two halves need to sit together.
+
+   The palette is the existing --diff-remove-bg / --danger pair rather than
+   anything new: the differences view already means "this line goes away"
+   with exactly those two, so a staged removal reads the same way it reads
+   there. */
+.editapp-rename-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.editapp-rename-row .addapp-input {
+  margin-bottom: 12px;
+}
+.editapp-section-label {
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.editapp-filter {
+  margin-bottom: 6px !important;
+}
+.editapp-count-note {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.editapp-empty-note {
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* A row already staged for removal, still shown in place so the list does
+   not jump under the cursor as the user works down it. */
+.editapp-row--staged {
+  background: var(--diff-remove-bg);
+  opacity: 0.65;
+}
+.editapp-covered-note {
+  /* Shrinkable, unlike the buttons beside it: when the row runs out of room
+     this is the part that can afford to lose characters, because the folder
+     it names is on screen directly above. */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.editapp-untrack-btn {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+}
+.editapp-untrack-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.editapp-untrack-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.editapp-remove-section:empty {
+  display: none;
+}
+.editapp-remove-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0 34px 0 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.editapp-remove-row {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--danger);
+  background: var(--diff-remove-bg);
+}
+.editapp-remove-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* The pair that does the real reassuring. Monospace and aligned so the two
+   paths can be read against each other at a glance — the point is that the
+   second one, the file in $HOME, is visibly NOT the one being deleted. */
+.editapp-path-pair {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+.editapp-path-delete {
+  color: var(--danger);
+}
+.editapp-path-keep {
+  color: var(--accent);
+}
+.editapp-remove-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.editapp-reassurance {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.editapp-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.editapp-cancel-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.editapp-cancel-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+/* Set apart below the main actions, and never the bare word "Delete" — the
+   sentence names what leaves (the vault's folder) so the button cannot be
+   read as acting on the user's home folder. */
+.editapp-remove-app-btn {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+.editapp-remove-app-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--diff-remove-bg);
+}
+.editapp-remove-app-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+
+/* Pending undo snapshots, shown above the activity log. A snapshot is the
+   residue of a logged restore and both are per-machine state, so they belong
+   in the same overlay — but a snapshot is pending rather than finished, and
+   carries actions, so it is visually its own block rather than another log
+   row. */
+.snapshot-section:empty {
+  display: none;
+}
+.snapshot-section-label {
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.snapshot-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0 34px 0 0;
+}
+.snapshot-row {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.snapshot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.snapshot-app {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.snapshot-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.snapshot-note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--warn, var(--text-dim));
+}
+.snapshot-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.snapshot-undo-btn,
+.snapshot-discard-btn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+.snapshot-undo-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.snapshot-discard-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.snapshot-undo-btn:disabled,
+.snapshot-discard-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The machine-info card as a surface of its own, opened from the VAULT pane
+   header. The card itself is the same element the restore preview builds —
+   the two must never be able to disagree about what this vault says. */
+/* Deliberately NO position here. .overlay-close is absolutely positioned,
+   so a positioned content div becomes its containing block instead of
+   .overlay-panel — which offsets the button by the panel's 28px padding and
+   drops it below the heading, out of line with every other overlay in the
+   app. This was the only content class in the file that did that. The
+   min-width it also carried was redundant: .overlay-panel already sets one. */
+.machine-info-panel {
+  display: block;
+}
+.machine-info-note {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+
+/* Unaccounted-for vault files, inside "This vault". An orphan belongs to no
+   app, so it is a property of the vault and belongs on the vault's own
+   surface rather than a new one. */
+.orphan-section:empty {
+  display: none;
+}
+.orphan-section {
+  margin-top: 18px;
+}
+.orphan-note {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.orphan-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 8px 38px 8px 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.orphan-row {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  white-space: pre;
+}
+/* Same restraint as the remove-app button: never the bare word "Delete",
+   always with the count and the total, and never styled as the primary
+   action of the panel it sits in. */
+.orphan-delete-btn {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+.orphan-delete-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--diff-remove-bg);
+}
+.orphan-delete-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
