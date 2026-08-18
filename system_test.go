@@ -349,3 +349,97 @@ func TestGetDiffPair_ReadsSystemPathsAndRefusesOthers(t *testing.T) {
 		t.Error("GetDiffPair must refuse a path outside every allowed root")
 	}
 }
+
+// TestRejectDangerousVaultPath_RefusesAVaultInsideASourceRoot pins a
+// collision that only exists now that /etc and /usr are places RESONANCE
+// reads from: a vault living inside one would be walked as part of the
+// folder it sits in, back itself up, and grow on every backup.
+func TestRejectDangerousVaultPath_RefusesAVaultInsideASourceRoot(t *testing.T) {
+	sysRoot := t.TempDir()
+	withSystemRoots(t, sysRoot)
+
+	inside := filepath.Join(sysRoot, "resonance-vault")
+	if err := os.MkdirAll(inside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := rejectDangerousVaultPath(inside)
+	if err == nil {
+		t.Fatal("a vault inside a source root was accepted")
+	}
+	if !strings.Contains(err.Error(), "backing itself up") {
+		t.Errorf("the refusal should say why, said: %v", err)
+	}
+
+	// The root itself, and a near miss that merely shares a prefix, are
+	// separate cases and only the first is refused.
+	if err := rejectDangerousVaultPath(sysRoot); err == nil {
+		t.Error("the source root itself was accepted as a vault")
+	}
+	if err := rejectDangerousVaultPath(sysRoot + "-elsewhere"); err != nil {
+		t.Errorf("a folder that merely shares a prefix must be fine: %v", err)
+	}
+}
+
+// TestUseVaultPath_OffersRightsForARootOwnedFolder pins the change from a
+// flat refusal to an offer. UseVaultPath still says no — but it now says no
+// in a way that names what would fix it, and ProbeVaultPath reports it so the
+// Change Path overlay can ask before the user commits to anything.
+func TestUseVaultPath_OffersRightsForARootOwnedFolder(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, where nothing is unwritable")
+	}
+	a, _, _ := newRestoreFixture(t)
+
+	readOnly := t.TempDir()
+	if err := os.Chmod(readOnly, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(readOnly, 0755) })
+	t.Cleanup(forgetVaultAccess)
+
+	err := a.UseVaultPath(readOnly)
+	if err == nil {
+		t.Fatal("a folder RESONANCE cannot write was accepted as the vault")
+	}
+	if !strings.Contains(err.Error(), "administrator rights") {
+		t.Errorf("the refusal should name what would fix it, said: %v", err)
+	}
+
+	probe, probeErr := a.ProbeVaultPath(readOnly)
+	if probeErr != nil {
+		t.Fatalf("ProbeVaultPath: %v", probeErr)
+	}
+	if !probe.NeedsAdmin {
+		t.Error("the probe should report that this folder needs administrator rights")
+	}
+}
+
+// TestMoveVault_RefusedWhenTheVaultBelongsToRoot pins the one thing a
+// root-owned vault genuinely cannot do. Move ends by deleting the vault
+// folder, which is a write to that folder's parent — outside the helper's
+// reach by construction, since the helper's reach is the vault itself.
+func TestMoveVault_RefusedWhenTheVaultBelongsToRoot(t *testing.T) {
+	a, _, vault := newRestoreFixture(t)
+
+	resolved, err := filepath.EvalSymlinks(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgetVaultAccess()
+	vaultAccessMu.Lock()
+	vaultAccess[resolved] = true
+	vaultAccessMu.Unlock()
+	t.Cleanup(forgetVaultAccess)
+
+	dest := filepath.Join(t.TempDir(), "elsewhere")
+	err = a.MoveVaultTo(dest)
+	if err == nil {
+		t.Fatal("moving a root-owned vault away was allowed")
+	}
+	if !strings.Contains(err.Error(), "use Copy") {
+		t.Errorf("the refusal should point at the thing that does work, said: %v", err)
+	}
+	if _, statErr := os.Stat(vault); statErr != nil {
+		t.Errorf("the original vault should be untouched: %v", statErr)
+	}
+}

@@ -168,12 +168,26 @@ func helperInstalled() error {
 	return nil
 }
 
-func startHelper(vaultRoot string) (*helperSession, error) {
+// helperCommand builds the process that runs the helper as root.
+//
+// A variable so tests can drive the locally built helper directly and
+// unprivileged: `go test` cannot answer a polkit dialog, but the protocol,
+// the path proving and every refusal are the same binary either way, so
+// pointing this at build/bin/resonance-helper exercises the real code and
+// only skips becoming root.
+var helperCommand = func() (*exec.Cmd, error) {
 	if err := helperInstalled(); err != nil {
 		return nil, err
 	}
+	return exec.Command("pkexec", helperPath), nil
+}
 
-	cmd := exec.Command("pkexec", helperPath)
+func startHelper(vaultRoot string) (*helperSession, error) {
+	cmd, err := helperCommand()
+	if err != nil {
+		return nil, err
+	}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

@@ -292,7 +292,7 @@ func saveManifest(vaultPath string, m Manifest) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(vaultPath, manifestPath(vaultPath), data, 0644)
+	return vaultWriteFile(vaultPath, manifestPath(vaultPath), data, 0644)
 }
 
 // writeFileAtomic writes data to path via a temp file in dir followed by a

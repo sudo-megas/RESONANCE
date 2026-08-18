@@ -424,9 +424,9 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 	written := make([]string, 0, len(st.Files))
 	unwind := func() {
 		for i := len(written) - 1; i >= 0; i-- {
-			_ = os.Remove(written[i])
+			_ = vaultRemove(vaultPath, written[i])
 		}
-		pruneEmptyDirs(appDir, vaultPath)
+		pruneEmptyDirs(vaultPath, appDir, vaultPath)
 	}
 
 	for i := range st.Files {
@@ -447,7 +447,7 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 			unwind()
 			return fmt.Errorf("%s can't be written — something in the vault points outside it", st.Files[i].Entry.Path)
 		}
-		if err := copyFileAtomic(st.Files[i].Source, dst); err != nil {
+		if err := vaultCopyFileAtomic(vaultPath, st.Files[i].Source, dst); err != nil {
 			unwind()
 			return err
 		}
@@ -468,7 +468,14 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 // stopAt and never touching it. The containment test is what keeps a bug
 // here from walking up and deleting the vault: it climbs only while the
 // candidate is genuinely underneath stopAt.
-func pruneEmptyDirs(dir, stopAt string) {
+//
+// vaultPath is separate from stopAt because they are usually different: the
+// callers that clean up after removing one app's files stop at that app's
+// folder, not at the vault. Removing is a write, so it needs to know which
+// vault it is writing in; reading the directory to see whether it is empty
+// does not, because a vault RESONANCE cannot read is refused long before
+// this.
+func pruneEmptyDirs(vaultPath, dir, stopAt string) {
 	if stopAt == "" {
 		return
 	}
@@ -477,7 +484,7 @@ func pruneEmptyDirs(dir, stopAt string) {
 		if err != nil || len(entries) > 0 {
 			return
 		}
-		if err := os.Remove(dir); err != nil {
+		if err := vaultRemove(vaultPath, dir); err != nil {
 			return
 		}
 		dir = filepath.Dir(dir)
@@ -653,12 +660,12 @@ func (a *App) RemoveVaultOrphans(relPaths []string) (RemoveResult, error) {
 		// os.Remove is unlink(2), which declines to follow a symlink at the
 		// final component — so an orphan that is itself a link is unlinked,
 		// never followed to whatever it points at.
-		if err := os.Remove(abs); err != nil {
+		if err := vaultRemove(settings.VaultPath, abs); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: rel, Reason: err.Error()})
 			continue
 		}
 		result.RemovedFiles = append(result.RemovedFiles, rel)
-		pruneEmptyDirs(filepath.Dir(abs), settings.VaultPath)
+		pruneEmptyDirs(settings.VaultPath, filepath.Dir(abs), settings.VaultPath)
 	}
 
 	if len(result.RemovedFiles) > 0 {

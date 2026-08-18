@@ -313,11 +313,11 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		// Already absent counts as removed: the goal state is "not in the
 		// vault", which is what makes a retry after a partial failure
 		// converge instead of failing forever on the entries that worked.
-		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		if err := vaultRemove(settings.VaultPath, abs); err != nil && !os.IsNotExist(err) {
 			result.Failed = append(result.Failed, RestoreFailure{Path: p, Reason: err.Error()})
 			continue
 		}
-		pruneEmptyDirs(filepath.Dir(abs), vaultAppDir)
+		pruneEmptyDirs(settings.VaultPath, filepath.Dir(abs), vaultAppDir)
 		removedFile[p] = true
 		result.RemovedFiles = append(result.RemovedFiles, p)
 	}
@@ -333,11 +333,11 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		// os.RemoveAll unlinks a symlink rather than recursing through it,
 		// so a link planted at the folder itself is cleaned out of the vault
 		// without its target being touched.
-		if err := os.RemoveAll(abs); err != nil {
+		if err := vaultRemoveAll(settings.VaultPath, abs); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: d, Reason: err.Error()})
 			continue
 		}
-		pruneEmptyDirs(filepath.Dir(abs), vaultAppDir)
+		pruneEmptyDirs(settings.VaultPath, filepath.Dir(abs), vaultAppDir)
 		removedDir[d] = true
 		result.RemovedDirs = append(result.RemovedDirs, d)
 	}
@@ -553,7 +553,7 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 	if _, err := relativeUnder(appDir, settings.VaultPath); err != nil {
 		return result, fmt.Errorf("%s isn't inside the vault", app.Name)
 	}
-	if err := os.RemoveAll(appDir); err != nil {
+	if err := vaultRemoveAll(settings.VaultPath, appDir); err != nil {
 		result.Failed = append(result.Failed, RestoreFailure{Path: app.Name, Reason: err.Error()})
 		return result, err
 	}
@@ -626,7 +626,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 	// error — there is simply nothing to move.
 	moved := false
 	if _, err := os.Lstat(oldDir); err == nil {
-		if err := os.Rename(oldDir, newDir); err != nil {
+		if err := vaultRename(settings.VaultPath, oldDir, newDir); err != nil {
 			return err
 		}
 		moved = true
@@ -641,7 +641,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 		// orphans with no route back from inside the app. commitAdd sets the
 		// precedent — a half-applied vault change gets unwound, not reported.
 		if moved {
-			_ = os.Rename(newDir, oldDir)
+			_ = vaultRename(settings.VaultPath, newDir, oldDir)
 		}
 		return err
 	}
