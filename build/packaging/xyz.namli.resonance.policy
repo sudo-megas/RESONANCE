@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+
+<!--
+  This file is what lets RESONANCE put a file back into /etc or /usr.
+
+  Installed to /usr/share/polkit-1/actions/. The annotation at the bottom is
+  the whole mechanism: pkexec looks for an action whose exec.path matches the
+  program it was asked to run, and uses that action's rules. Change the path
+  and elevation stops working; it must stay in step with helperPath in
+  elevate.go, which names the same location literally.
+
+  Because polkit authorises a *path* and not a binary, a development build
+  running out of build/bin/ cannot elevate at all. That is the design working,
+  not a bug, and the app says so in plain words rather than failing at a
+  prompt that never appears.
+
+  auth_admin_keep, not auth_admin: restoring an app means putting back several
+  files at once, and being asked once per file is not an app anyone would use.
+  "keep" holds the authorisation for a few minutes — the behaviour of Dolphin's
+  "act as administrator", which is the one that was asked for.
+
+  The DOCTYPE above is polkit's required boilerplate, identical in every policy
+  file on the system. Nothing fetches that URL.
+-->
+<policyconfig>
+
+  <vendor>RESONANCE</vendor>
+  <vendor_url>https://github.com/sudo-megas/RESONANCE</vendor_url>
+  <icon_name>resonance</icon_name>
+
+  <action id="xyz.namli.resonance.helper">
+    <description>Put back system configuration files</description>
+    <message>Authentication is required for RESONANCE to put files back into /etc and /usr</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/resonance/resonance-helper</annotate>
+  </action>
+
+</policyconfig>

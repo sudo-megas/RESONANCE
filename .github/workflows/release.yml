@@ -46,11 +46,18 @@ jobs:
       - name: Build
         run: wails build -tags webkit2_41 -platform linux/amd64
 
+      # The helper is a second main package and wails knows nothing about
+      # it, so it gets its own build — after the app's, because wails
+      # clears build/bin. Both packaging jobs install it, and without it
+      # putting a file back into /etc or /usr cannot work.
+      - name: Build privileged helper
+        run: go build -trimpath -ldflags="-w -s" -o build/bin/resonance-helper ./cmd/resonance-helper
+
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: resonance-linux-amd64
-          path: build/bin/resonance
+          path: build/bin/
           retention-days: 1
 
   package-deb:
@@ -82,6 +89,12 @@ jobs:
           set -e
           ROOT="pkgroot"
           install -Dm755 artifact/resonance "$ROOT/usr/bin/resonance"
+          # Not /usr/bin: the helper is not a program to run, it is what
+          # pkexec runs on RESONANCE's behalf. The policy file authorises
+          # this exact path, and --root-owner-group below is what makes it
+          # root-owned in the package — pkexec refuses a helper that is not.
+          install -Dm755 artifact/resonance-helper "$ROOT/usr/lib/resonance/resonance-helper"
+          install -Dm644 build/packaging/xyz.namli.resonance.policy "$ROOT/usr/share/polkit-1/actions/xyz.namli.resonance.policy"
           install -Dm644 build/packaging/resonance.desktop "$ROOT/usr/share/applications/resonance.desktop"
           for size in 32 48 64 128 256 512; do
             install -Dm644 "build/icons/${size}.png" "$ROOT/usr/share/icons/hicolor/${size}x${size}/apps/resonance.png"
@@ -133,7 +146,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -e
-          chmod +x build/bin/resonance
+          chmod +x build/bin/resonance build/bin/resonance-helper
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" build/packaging/PKGBUILD
           # makepkg refuses to run as root (the container's default user) —
           # a throwaway build user is the standard workaround, and since

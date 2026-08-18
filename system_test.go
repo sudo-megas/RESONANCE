@@ -19,6 +19,18 @@ func withSystemRoots(t *testing.T, roots ...string) {
 	t.Cleanup(func() { systemRoots = original })
 }
 
+// withoutInstalledHelper points the elevation client at a path that cannot
+// exist, so a test asserting the privilege boundary asserts the same thing on
+// every machine. Without it, `go test` on a developer's machine that has
+// RESONANCE installed would reach pkexec and sit waiting for a password
+// dialog nobody is watching.
+func withoutInstalledHelper(t *testing.T) {
+	t.Helper()
+	original := helperPath
+	helperPath = filepath.Join(t.TempDir(), "no-helper-here")
+	t.Cleanup(func() { helperPath = original })
+}
+
 // newSystemFixture is newRestoreFixture plus a stand-in system root.
 func newSystemFixture(t *testing.T) (app *App, home, vault, sysRoot string) {
 	t.Helper()
@@ -252,6 +264,7 @@ func TestScanVaultOrphans_IgnoresSystemBackups(t *testing.T) {
 // restore — one file's need for rights must not fail the others.
 func TestRestoreApp_SystemFileNeedsAdminRights(t *testing.T) {
 	a, home, _, sysRoot := newSystemFixture(t)
+	withoutInstalledHelper(t)
 
 	sysFile := filepath.Join(sysRoot, "alsa.conf")
 	if err := os.WriteFile(sysFile, []byte("original\n"), 0644); err != nil {
@@ -288,8 +301,12 @@ func TestRestoreApp_SystemFileNeedsAdminRights(t *testing.T) {
 	if len(result.Failed) != 1 || result.Failed[0].Path != sysFile {
 		t.Fatalf("the system file must fail honestly, Failed = %+v", result.Failed)
 	}
-	if !strings.Contains(result.Failed[0].Reason, "administrator rights") {
-		t.Errorf("the failure should say what is needed, said: %s", result.Failed[0].Reason)
+	// Pinned to the exact sentence rather than to the words "administrator
+	// rights", which several different failures share. With no helper
+	// installed this is the one that must come back: the boundary is real,
+	// and this build is honest about not being able to cross it.
+	if result.Failed[0].Reason != errNoHelperInstalled.Error() {
+		t.Errorf("the failure should be the not-installed sentence, said: %s", result.Failed[0].Reason)
 	}
 	// And the live system file is untouched — a refusal must not be a
 	// half-write.

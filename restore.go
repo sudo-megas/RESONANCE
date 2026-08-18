@@ -341,8 +341,11 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 // is done. A home destination is unlinked and copied here, unprivileged. A
 // system destination is handed to the helper whole — unlinking a planted
 // symlink in /etc and creating the file there are both privileged, and doing
-// them in one place at root under O_NOFOLLOW is what closes the window
-// between checking a path here and writing it a moment later.
+// them in one place at root closes the window between checking a path here
+// and writing it a moment later. The helper walks the path down from /etc one
+// component at a time, refusing any symlink standing where a folder should
+// be, and lands the file with a rename, which replaces a symlink at the
+// destination rather than following it.
 func writeRestoredFile(scope pathScope, vaultFile, destPath string) error {
 	if err := refuseSymlink(vaultFile); err != nil {
 		return err

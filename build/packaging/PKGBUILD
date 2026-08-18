@@ -1,11 +1,16 @@
 # Maintainer: sudo-megas <sudo-megas@users.noreply.github.com>
 #
-# This PKGBUILD packages an already-built RESONANCE binary — it does not
+# This PKGBUILD packages already-built RESONANCE binaries — it does not
 # compile the app itself. CI's package-arch job downloads the build job's
 # binary artifact and stages it here before running makepkg, so the .deb
 # and the Arch package always wrap the exact same tested bytes. To build
-# locally: run `wails build -tags webkit2_41` from the repo root first
-# (producing build/bin/resonance), then `makepkg` from this directory.
+# locally, from the repo root:
+#
+#   wails build -tags webkit2_41
+#   go build -o build/bin/resonance-helper ./cmd/resonance-helper
+#
+# then `makepkg` from this directory. Both binaries are needed: `wails
+# build` produces only the app, and the helper is a second main package.
 pkgname=resonance
 pkgver=1.1.0
 pkgrel=1
@@ -13,7 +18,10 @@ pkgdesc="Dotfile syncing that is for \"users\" not developers"
 arch=('x86_64')
 url="https://github.com/sudo-megas/RESONANCE"
 license=('GPL-3.0-or-later')
-depends=('webkit2gtk-4.1' 'gtk3')
+# polkit provides both pkexec and the daemon that answers it; putting a
+# file back into /etc or /usr goes through build/bin/resonance-helper and
+# does not work without it.
+depends=('webkit2gtk-4.1' 'gtk3' 'polkit')
 # Wails' production build already strips symbols (-w -s); without this,
 # makepkg's stock options=(strip debug ...) split out a debug package
 # that's effectively empty and ships to every release as confusing junk.
@@ -25,6 +33,11 @@ options=('!debug' '!strip')
 # package() instead of going through the fetch/checksum pipeline.
 package() {
   install -Dm755 "${startdir}/../bin/resonance" "${pkgdir}/usr/bin/resonance"
+  # The helper is not in /usr/bin: it is not a program to run, it is the
+  # thing pkexec runs on RESONANCE's behalf. Its path is authorised
+  # literally by the policy file below, so the two must stay in step.
+  install -Dm755 "${startdir}/../bin/resonance-helper" "${pkgdir}/usr/lib/resonance/resonance-helper"
+  install -Dm644 "${startdir}/xyz.namli.resonance.policy" "${pkgdir}/usr/share/polkit-1/actions/xyz.namli.resonance.policy"
   install -Dm644 "${startdir}/resonance.desktop" "${pkgdir}/usr/share/applications/resonance.desktop"
   install -Dm644 "${startdir}/../icons/32.png" "${pkgdir}/usr/share/icons/hicolor/32x32/apps/resonance.png"
   install -Dm644 "${startdir}/../icons/48.png" "${pkgdir}/usr/share/icons/hicolor/48x48/apps/resonance.png"
