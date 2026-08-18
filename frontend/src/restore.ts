@@ -334,9 +334,18 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
       );
       return;
     }
-    const vaultBroken = row.files.some((f) => f.state === "vaultMissing" || f.state === "vaultDamaged");
+    // vaultMissing and vaultDamaged are two different sentences, and saying
+    // "no vault copy" about a copy that is sitting right there sends the
+    // reader looking for a file that was never gone. Damaged is checked
+    // first: it is the more surprising of the two, and an app showing both
+    // is better described by the copy that changed under it than by the one
+    // that vanished.
+    const vaultMissing = row.files.some((f) => f.state === "vaultMissing");
+    const vaultDamaged = row.files.some((f) => f.state === "vaultDamaged");
     const untracked = row.files.some((f) => f.state === "untracked");
-    if (vaultBroken) {
+    if (vaultDamaged) {
+      showToast(`${row.name}'s backup no longer matches what was recorded — update from source to replace it`);
+    } else if (vaultMissing) {
       showToast(`${row.name} has no vault copy to restore — update from source first`);
     } else if (untracked) {
       showToast(`${row.name} has files that were never backed up — update from source first`);
