@@ -67,3 +67,5 @@ export function UntrackDir(arg1:string,arg2:string):Promise<void>;
 export function UpdateFromSource(arg1:string):Promise<main.UpdateResult>;
 
 export function UseVaultPath(arg1:string):Promise<void>;
+
+export function UseVaultPathWithAdmin(arg1:string):Promise<void>;

@@ -14,7 +14,7 @@ import (
 // Name is itself a path-traversal payload, not just one of its file paths.
 // Every vault-side path this codebase builds is filepath.Join(vaultPath,
 // app.Name, ...); without sanitizing app.Name at load time, that join
-// escapes the vault regardless of any per-file homeRelative check further
+// escapes the vault regardless of any per-file relativeUnder check further
 // down each call site.
 func TestLoadManifest_RejectsHostileAppName(t *testing.T) {
 	vault := t.TempDir()
@@ -186,7 +186,7 @@ func TestUpdateFromSource_RefusesToFollowSymlinkAtVaultDestination(t *testing.T)
 
 // TestFileDriftRow_RejectsPathTraversal plants a real file outside $HOME
 // whose checksum/size exactly matches what a hostile manifest entry
-// claims. Without the homeRelative guard, fileDriftRow would happily stat
+// claims. Without the relativeUnder guard, fileDriftRow would happily stat
 // and hash that outside file and report State "ok" -- a false "everything
 // matches" for a path that was never supposed to be read at all. This is
 // what makes the test meaningful: "missing" must come from the guard
@@ -209,7 +209,7 @@ func TestFileDriftRow_RejectsPathTraversal(t *testing.T) {
 
 	// An empty vault root isolates this to the source-side guard, which is
 	// what the test is about.
-	row := fileDriftRow(home, "", "", ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
+	row := fileDriftRow(home, "", "", scopeHome, ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
 	if row.State != "missing" {
 		t.Fatalf("State = %q, want missing for a path-traversal entry (must never read outside $HOME)", row.State)
 	}
@@ -223,13 +223,13 @@ func TestFileDriftRow_RejectsPathTraversal(t *testing.T) {
 // TestExpandTrackedDir_RefusesIntermediateSymlink is the regression that a
 // "../../etc" test cannot give you, and the distinction is the whole point.
 //
-// Every guard on a tracked-folder path is lexical: homeRelative is
+// Every guard on a tracked-folder path is lexical: relativeUnder is
 // filepath.Rel plus a ".." prefix test, resolving nothing. filepath.WalkDir
 // lstats its root, and lstat declines to follow only the FINAL component —
 // every intermediate one is followed. So "link/sub", where link is a symlink
 // pointing outside $HOME, passes filepath.Clean, passes IsLocal, passes
-// homeRelative, and then walks the target anyway. Every file discovered
-// under it passes a second homeRelative check too, because those strings
+// relativeUnder, and then walks the target anyway. Every file discovered
+// under it passes a second relativeUnder check too, because those strings
 // really do begin with $HOME.
 //
 // This is not a contrived shape: ~/.wine/dosdevices/z: -> / ships with wine
@@ -252,10 +252,10 @@ func TestExpandTrackedDir_RefusesIntermediateSymlink(t *testing.T) {
 	}
 
 	// Lexically flawless: no "..", no absolute path, strictly under $HOME.
-	if got := expandTrackedDir(home, "link/sub", nil); len(got) != 0 {
+	if got := expandTrackedDir(home, scopeHome, "link/sub", nil); len(got) != 0 {
 		t.Fatalf("walked outside $HOME through an intermediate symlink: %v", got)
 	}
-	if got := expandTrackedDir(home, "link", nil); len(got) != 0 {
+	if got := expandTrackedDir(home, scopeHome, "link", nil); len(got) != 0 {
 		t.Fatalf("walked outside $HOME through a symlinked root: %v", got)
 	}
 }
@@ -280,7 +280,7 @@ func TestExpandTrackedDir_SkipsVaultAndSymlinkedFiles(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	got := expandTrackedDir(home, "dots", []string{vault})
+	got := expandTrackedDir(home, scopeHome, "dots", []string{vault})
 	if len(got) != 1 || got[0] != "dots/real.conf" {
 		t.Fatalf("expandTrackedDir = %v, want exactly [dots/real.conf]", got)
 	}
@@ -300,14 +300,14 @@ func TestFileDriftRow_ReportsMissingVaultCopy(t *testing.T) {
 	f := seedVaultFile(t, vault, "bash", ".bashrc", "live")
 	vaultAppDir := filepath.Join(vault, "bash")
 
-	if row := fileDriftRow(home, vault, "bash", f); row.State != "ok" {
+	if row := fileDriftRow(home, vault, "bash", scopeHome, f); row.State != "ok" {
 		t.Fatalf("State = %q, want ok while both copies are present", row.State)
 	}
 
 	if err := os.Remove(filepath.Join(vaultAppDir, ".bashrc")); err != nil {
 		t.Fatal(err)
 	}
-	row := fileDriftRow(home, vault, "bash", f)
+	row := fileDriftRow(home, vault, "bash", scopeHome, f)
 	if row.State != "vaultMissing" {
 		t.Fatalf("State = %q, want vaultMissing once the backup is gone", row.State)
 	}
@@ -346,7 +346,7 @@ func TestFileDriftRow_RefusesVaultPathEscapingViaSymlink(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	row := fileDriftRow(home, vault, "bash", ManifestFile{
+	row := fileDriftRow(home, vault, "bash", scopeHome, ManifestFile{
 		Path: ".bashrc", Size: size, Checksum: checksum, BackedUpAt: backedUpAt,
 	})
 	if row.State == "ok" {
@@ -530,7 +530,7 @@ func TestSanitizeTrackedDirs_DropsEscapes(t *testing.T) {
 // manifest.json -- e.g. one reachable via AdoptVaultPath -- whose file path
 // escapes $HOME. Every other path-consuming function in this codebase
 // (AddApp, RestoreApp, UndoRestore, GetDiffPair) re-validates manifest
-// paths through homeRelative before touching disk; UpdateFromSource must
+// paths through relativeUnder before touching disk; UpdateFromSource must
 // too, or a hostile entry gets silently read from outside $HOME and copied
 // into the vault.
 func TestUpdateFromSource_RejectsPathTraversal(t *testing.T) {

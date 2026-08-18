@@ -19,6 +19,16 @@ type SnapshotEntry struct {
 	Path       string `json:"path"`
 	Kind       string `json:"kind"` // "absent" | "regular" | "symlink"
 	LinkTarget string `json:"linkTarget,omitempty"`
+
+	// System marks an entry whose Path is absolute, under /etc or /usr.
+	// Additive, on the same footing as RestoreSnapshot.VaultPath below:
+	// absent on every snapshot written before v1.3.0, and absent means a
+	// $HOME-relative path, which is what every one of those snapshots holds.
+	//
+	// Without it, undo would join an absolute /etc path onto $HOME and write
+	// the old bytes to ~/etc/alsa/alsa.conf — the same silent wrong-place
+	// failure the manifest avoids by keeping SystemFiles a separate array.
+	System bool `json:"system,omitempty"`
 }
 
 // RestoreSnapshot is one app's full pre-restore state, written to
@@ -108,10 +118,11 @@ func undoRootDir() (string, error) {
 // error here means the caller must not mutate destPath either —
 // fail-closed, matching CORE.md's requirement that prior state is tucked
 // aside before it's overwritten, not best-effort.
-func captureEntry(pendingDir, relPath, destPath string) (SnapshotEntry, error) {
+func captureEntry(pendingDir string, scope pathScope, relPath, destPath string) (SnapshotEntry, error) {
+	system := scope == scopeSystem
 	info, err := os.Lstat(destPath)
 	if os.IsNotExist(err) {
-		return SnapshotEntry{Path: relPath, Kind: "absent"}, nil
+		return SnapshotEntry{Path: relPath, Kind: "absent", System: system}, nil
 	}
 	if err != nil {
 		return SnapshotEntry{}, err
@@ -121,15 +132,33 @@ func captureEntry(pendingDir, relPath, destPath string) (SnapshotEntry, error) {
 		if err != nil {
 			return SnapshotEntry{}, err
 		}
-		return SnapshotEntry{Path: relPath, Kind: "symlink", LinkTarget: target}, nil
+		return SnapshotEntry{Path: relPath, Kind: "symlink", LinkTarget: target, System: system}, nil
 	}
 	if !info.Mode().IsRegular() {
 		return SnapshotEntry{}, errors.New(relPath + " is not a regular file")
 	}
-	if err := copyFile(destPath, filepath.Join(pendingDir, filepath.FromSlash(relPath))); err != nil {
+	// Stored under the same reserved .system segment the vault uses, not at
+	// the raw path: filepath.Join would swallow the leading slash of an
+	// absolute entry, so /etc/alsa/alsa.conf and a home file at
+	// ~/etc/alsa/alsa.conf would land on the identical byte in the snapshot
+	// and one would overwrite the other's pre-restore state.
+	//
+	// Capturing is a plain read of the live file, which is why it needs no
+	// rights even for /etc. Putting it back does.
+	store := filepath.Join(pendingDir, filepath.FromSlash(vaultRelFor(scope, relPath)))
+	if err := copyFile(destPath, store); err != nil {
 		return SnapshotEntry{}, err
 	}
-	return SnapshotEntry{Path: relPath, Kind: "regular"}, nil
+	return SnapshotEntry{Path: relPath, Kind: "regular", System: system}, nil
+}
+
+// entryScope reads a snapshot entry's scope back. One function so the
+// bool-to-scope mapping is written once rather than at each undo call site.
+func entryScope(e SnapshotEntry) pathScope {
+	if e.System {
+		return scopeSystem
+	}
+	return scopeHome
 }
 
 // writeSnapshot is the one point where a snapshot becomes durable. Called
@@ -281,8 +310,9 @@ func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
 	}
 	n := 0
 	for _, entry := range snap.Entries {
-		destPath := filepath.Join(home, filepath.FromSlash(entry.Path))
-		if _, err := homeRelative(destPath, home); err != nil {
+		scope := entryScope(entry)
+		destPath := sourceAbs(home, scope, entry.Path)
+		if gotScope, _, err := classifySource(destPath, home); err != nil || gotScope != scope {
 			continue
 		}
 		switch entry.Kind {
@@ -293,7 +323,7 @@ func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
 		case "regular":
 			// This one has captured bytes sitting beside snapshot.json, and
 			// they are what a partially-deleted state directory loses first.
-			backing := filepath.Join(canonicalDir, filepath.FromSlash(entry.Path))
+			backing := filepath.Join(canonicalDir, filepath.FromSlash(vaultRelFor(scope, entry.Path)))
 			if info, err := os.Lstat(backing); err == nil && info.Mode().IsRegular() {
 				n++
 			}
@@ -305,7 +335,7 @@ func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
 
 // UndoRestore replays appName's snapshot back onto the live system,
 // per-entry-independent like RestoreApp itself. Every path is
-// re-validated through homeRelative before any write — snapshot.json is
+// re-validated through relativeUnder before any write — snapshot.json is
 // on-disk state, the same trust boundary as manifest.json, never trusted
 // blindly.
 func (a *App) UndoRestore(appName string) (UndoResult, error) {
@@ -330,31 +360,49 @@ func (a *App) UndoRestore(appName string) (UndoResult, error) {
 
 	allSucceeded := true
 	for _, entry := range snap.Entries {
-		destPath := filepath.Join(home, filepath.FromSlash(entry.Path))
-		if _, err := homeRelative(destPath, home); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: entry.Path, Reason: err.Error()})
+		scope := entryScope(entry)
+		destPath := sourceAbs(home, scope, entry.Path)
+		// Re-validated through the classifier rather than a bare containment
+		// test: snapshot.json is on-disk state and gets the same treatment as
+		// manifest.json. Comparing the scope back is what stops a hand-edited
+		// entry from claiming to be a home path and being written into /etc,
+		// or the reverse.
+		if gotScope, _, err := classifySource(destPath, home); err != nil || gotScope != scope {
+			reason := "this entry's path is outside everywhere RESONANCE writes"
+			if err != nil {
+				reason = err.Error()
+			}
+			result.Failed = append(result.Failed, RestoreFailure{Path: entry.Path, Reason: reason})
 			allSucceeded = false
 			continue
 		}
 
 		var restoreErr error
-		switch entry.Kind {
-		case "absent":
-			restoreErr = removeAnythingAt(destPath)
-		case "symlink":
-			if err := removeAnythingAt(destPath); err != nil {
-				restoreErr = err
-			} else {
-				restoreErr = os.Symlink(entry.LinkTarget, destPath)
+		if scope == scopeSystem {
+			// Undoing a system restore is as privileged as making one: every
+			// branch below unlinks or creates a file in a folder that belongs
+			// to root. It goes to the helper whole, for the same reason the
+			// restore does.
+			restoreErr = undoSystemEntry(entry, destPath, filepath.Join(canonicalDir, filepath.FromSlash(vaultRelFor(scope, entry.Path))))
+		} else {
+			switch entry.Kind {
+			case "absent":
+				restoreErr = removeAnythingAt(destPath)
+			case "symlink":
+				if err := removeAnythingAt(destPath); err != nil {
+					restoreErr = err
+				} else {
+					restoreErr = os.Symlink(entry.LinkTarget, destPath)
+				}
+			case "regular":
+				if err := removeAnythingAt(destPath); err != nil {
+					restoreErr = err
+				} else {
+					restoreErr = copyFile(filepath.Join(canonicalDir, filepath.FromSlash(entry.Path)), destPath)
+				}
+			default:
+				restoreErr = errors.New("unknown snapshot entry kind: " + entry.Kind)
 			}
-		case "regular":
-			if err := removeAnythingAt(destPath); err != nil {
-				restoreErr = err
-			} else {
-				restoreErr = copyFile(filepath.Join(canonicalDir, filepath.FromSlash(entry.Path)), destPath)
-			}
-		default:
-			restoreErr = errors.New("unknown snapshot entry kind: " + entry.Kind)
 		}
 
 		if restoreErr != nil {

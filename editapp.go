@@ -25,6 +25,9 @@ type RemoveResult struct {
 type TrackedDir struct {
 	Path      string `json:"path"`
 	FileCount int    `json:"fileCount"`
+
+	// System marks a folder under /etc or /usr, whose Path is absolute.
+	System bool `json:"system"`
 }
 
 // UntrackPreview is what untracking a folder would do, counted before the
@@ -87,21 +90,31 @@ func (a *App) GetAppComposition(name string) (AppComposition, error) {
 
 	comp := AppComposition{
 		Name:  app.Name,
-		Files: make([]string, 0, len(app.Files)),
-		Dirs:  make([]TrackedDir, 0, len(app.Dirs)),
+		Files: make([]string, 0, len(app.Files)+len(app.SystemFiles)),
+		Dirs:  make([]TrackedDir, 0, len(app.Dirs)+len(app.SystemDirs)),
 	}
 	for _, f := range app.Files {
 		comp.Files = append(comp.Files, f.Path)
 	}
-	for _, d := range app.Dirs {
-		td := TrackedDir{Path: d}
-		for _, f := range app.Files {
-			if pathCoveredByDir(f.Path, d) {
-				td.FileCount++
-			}
-		}
-		comp.Dirs = append(comp.Dirs, td)
+	for _, f := range app.SystemFiles {
+		comp.Files = append(comp.Files, f.Path)
 	}
+	// Counted within its own scope: a system folder counts the system files
+	// under it and a home folder the home files, so "/etc" cannot claim a
+	// coincidentally similar-looking relative path as one of its own.
+	countDirs := func(dirs []string, entries []ManifestFile, system bool) {
+		for _, d := range dirs {
+			td := TrackedDir{Path: d, System: system}
+			for _, f := range entries {
+				if pathCoveredByDir(f.Path, d) {
+					td.FileCount++
+				}
+			}
+			comp.Dirs = append(comp.Dirs, td)
+		}
+	}
+	countDirs(app.Dirs, app.Files, false)
+	countDirs(app.SystemDirs, app.SystemFiles, true)
 	return comp, nil
 }
 
@@ -133,11 +146,11 @@ func (a *App) AddToApp(name string, absPaths []string) error {
 
 	// The app's current contents are passed in so re-picking something
 	// already tracked collapses to nothing instead of a duplicate entry.
-	st, err := stageAdd(home, settings.VaultPath, absPaths, app.Files, app.Dirs)
+	st, err := stageAdd(home, settings.VaultPath, absPaths, app)
 	if err != nil {
 		return err
 	}
-	if len(st.Files) == 0 && len(st.Dirs) == 0 {
+	if len(st.Files) == 0 && len(st.Dirs) == 0 && len(st.SystemDirs) == 0 {
 		// Everything picked is already tracked. Saving here would rewrite
 		// manifest.json and restamp the machine info to say this machine
 		// backed something up, which it did not.
@@ -149,14 +162,17 @@ func (a *App) AddToApp(name string, absPaths []string) error {
 		return err
 	}
 
-	app.Files = append(app.Files, st.Files...)
+	homeFiles, systemFiles := st.manifestFiles()
+	app.Files = append(app.Files, homeFiles...)
 	app.Dirs = append(app.Dirs, st.Dirs...)
+	app.SystemFiles = append(app.SystemFiles, systemFiles...)
+	app.SystemDirs = append(app.SystemDirs, st.SystemDirs...)
 	m.Apps[idx] = app
 	stampMachineInfo(&m)
 	if err := saveManifest(settings.VaultPath, m); err != nil {
 		return err
 	}
-	recordActivity("add", name, summarizeAddToActivity(name, len(st.Files), len(st.Dirs)))
+	recordActivity("add", name, summarizeAddToActivity(name, len(st.Files), len(st.Dirs)+len(st.SystemDirs)))
 	return nil
 }
 
@@ -189,13 +205,29 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 	app := m.Apps[idx]
 	vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 
-	haveFile := make(map[string]bool, len(app.Files))
+	// Both lists, and the scope each entry came from. The scope is looked up
+	// from the manifest rather than guessed from the string's shape: what
+	// decides where a delete lands must be what the app recorded, not what
+	// the path happens to look like when it arrives over IPC.
+	haveFile := make(map[string]bool, len(app.Files)+len(app.SystemFiles))
+	fileScope := make(map[string]pathScope, len(app.Files)+len(app.SystemFiles))
 	for _, f := range app.Files {
 		haveFile[f.Path] = true
+		fileScope[f.Path] = scopeHome
 	}
-	haveDir := make(map[string]bool, len(app.Dirs))
+	for _, f := range app.SystemFiles {
+		haveFile[f.Path] = true
+		fileScope[f.Path] = scopeSystem
+	}
+	haveDir := make(map[string]bool, len(app.Dirs)+len(app.SystemDirs))
+	dirScope := make(map[string]pathScope, len(app.Dirs)+len(app.SystemDirs))
 	for _, d := range app.Dirs {
 		haveDir[d] = true
+		dirScope[d] = scopeHome
+	}
+	for _, d := range app.SystemDirs {
+		haveDir[d] = true
+		dirScope[d] = scopeSystem
 	}
 
 	// --- whole-call validation ------------------------------------------
@@ -226,8 +258,15 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		// Dirs. Naming only one would send the user to untrack it, then
 		// refuse the same removal again naming the next one out — a dead end
 		// that looks like the app changing its mind.
+		// Only folders in the same scope can cover it: a home file is never
+		// inside a tracked /etc folder, and comparing across scopes would
+		// match on nothing but string coincidence.
+		coveringDirs := app.Dirs
+		if fileScope[p] == scopeSystem {
+			coveringDirs = app.SystemDirs
+		}
 		var covering []string
-		for _, d := range app.Dirs {
+		for _, d := range coveringDirs {
 			if pathCoveredByDir(p, d) {
 				covering = append(covering, d)
 			}
@@ -239,7 +278,7 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 				strings.Join(covering, " and "),
 				plural(len(covering), "it", "those"))
 		}
-		if _, err := homeRelative(filepath.Join(vaultAppDir, filepath.FromSlash(p)), vaultAppDir); err != nil {
+		if _, err := relativeUnder(filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(fileScope[p], p))), vaultAppDir); err != nil {
 			return result, fmt.Errorf("%s isn't inside this app's vault folder", p)
 		}
 		files = append(files, p)
@@ -255,7 +294,7 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		if !haveDir[d] {
 			return result, fmt.Errorf("%s isn't a tracked folder of %s", d, app.Name)
 		}
-		if _, err := homeRelative(filepath.Join(vaultAppDir, filepath.FromSlash(d)), vaultAppDir); err != nil {
+		if _, err := relativeUnder(filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(dirScope[d], d))), vaultAppDir); err != nil {
 			return result, fmt.Errorf("%s isn't inside this app's vault folder", d)
 		}
 		dirs = append(dirs, d)
@@ -265,38 +304,40 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 
 	removedFile := make(map[string]bool, len(files))
 	for _, p := range files {
-		abs := filepath.Join(vaultAppDir, filepath.FromSlash(p))
-		if err := refuseSymlinkedParents(vaultAppDir, p); err != nil {
+		vaultRel := vaultRelFor(fileScope[p], p)
+		abs := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRel))
+		if err := refuseSymlinkedParents(vaultAppDir, vaultRel); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: p, Reason: err.Error()})
 			continue
 		}
 		// Already absent counts as removed: the goal state is "not in the
 		// vault", which is what makes a retry after a partial failure
 		// converge instead of failing forever on the entries that worked.
-		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		if err := vaultRemove(settings.VaultPath, abs); err != nil && !os.IsNotExist(err) {
 			result.Failed = append(result.Failed, RestoreFailure{Path: p, Reason: err.Error()})
 			continue
 		}
-		pruneEmptyDirs(filepath.Dir(abs), vaultAppDir)
+		pruneEmptyDirs(settings.VaultPath, filepath.Dir(abs), vaultAppDir)
 		removedFile[p] = true
 		result.RemovedFiles = append(result.RemovedFiles, p)
 	}
 
 	removedDir := make(map[string]bool, len(dirs))
 	for _, d := range dirs {
-		abs := filepath.Join(vaultAppDir, filepath.FromSlash(d))
-		if err := refuseSymlinkedParents(vaultAppDir, d); err != nil {
+		vaultRel := vaultRelFor(dirScope[d], d)
+		abs := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRel))
+		if err := refuseSymlinkedParents(vaultAppDir, vaultRel); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: d, Reason: err.Error()})
 			continue
 		}
 		// os.RemoveAll unlinks a symlink rather than recursing through it,
 		// so a link planted at the folder itself is cleaned out of the vault
 		// without its target being touched.
-		if err := os.RemoveAll(abs); err != nil {
+		if err := vaultRemoveAll(settings.VaultPath, abs); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: d, Reason: err.Error()})
 			continue
 		}
-		pruneEmptyDirs(filepath.Dir(abs), vaultAppDir)
+		pruneEmptyDirs(settings.VaultPath, filepath.Dir(abs), vaultAppDir)
 		removedDir[d] = true
 		result.RemovedDirs = append(result.RemovedDirs, d)
 	}
@@ -305,36 +346,46 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		return result, nil
 	}
 
-	keptFiles := make([]ManifestFile, 0, len(app.Files))
-	for _, f := range app.Files {
-		if removedFile[f.Path] {
-			continue
-		}
-		// A removed folder takes every file under it: those vault copies were
-		// inside the subtree that just went, so keeping their entries would
-		// describe backups that no longer exist.
-		covered := false
-		for d := range removedDir {
-			if pathCoveredByDir(f.Path, d) {
-				covered = true
-				break
+	// A removed folder takes every file under it: those vault copies were
+	// inside the subtree that just went, so keeping their entries would
+	// describe backups that no longer exist. Matched within one scope, so a
+	// removed /etc folder cannot sweep away a home entry that merely reads
+	// like it sits underneath.
+	keepFiles := func(entries []ManifestFile, scope pathScope) []ManifestFile {
+		kept := make([]ManifestFile, 0, len(entries))
+		for _, f := range entries {
+			if removedFile[f.Path] {
+				continue
 			}
+			covered := false
+			for d := range removedDir {
+				if dirScope[d] == scope && pathCoveredByDir(f.Path, d) {
+					covered = true
+					break
+				}
+			}
+			if covered {
+				continue
+			}
+			kept = append(kept, f)
 		}
-		if covered {
-			continue
-		}
-		keptFiles = append(keptFiles, f)
+		return kept
 	}
-	keptDirs := make([]string, 0, len(app.Dirs))
-	for _, d := range app.Dirs {
-		if removedDir[d] {
-			continue
+	keepDirs := func(dirs []string) []string {
+		kept := make([]string, 0, len(dirs))
+		for _, d := range dirs {
+			if removedDir[d] {
+				continue
+			}
+			kept = append(kept, d)
 		}
-		keptDirs = append(keptDirs, d)
+		return kept
 	}
 
-	app.Files = keptFiles
-	app.Dirs = keptDirs
+	app.Files = keepFiles(app.Files, scopeHome)
+	app.Dirs = keepDirs(app.Dirs)
+	app.SystemFiles = keepFiles(app.SystemFiles, scopeSystem)
+	app.SystemDirs = keepDirs(app.SystemDirs)
 	m.Apps[idx] = app
 	// No stampMachineInfo: this machine deleted bytes, it did not back any
 	// up, and the restore preview's machine card would otherwise claim it
@@ -386,19 +437,25 @@ func (a *App) UntrackDir(name, relDir string) error {
 	}
 	app := m.Apps[idx]
 
-	keptDirs := make([]string, 0, len(app.Dirs))
-	found := false
-	for _, d := range app.Dirs {
-		if d == relDir {
-			found = true
-			continue
+	drop := func(dirs []string) ([]string, bool) {
+		kept := make([]string, 0, len(dirs))
+		found := false
+		for _, d := range dirs {
+			if d == relDir {
+				found = true
+				continue
+			}
+			kept = append(kept, d)
 		}
-		keptDirs = append(keptDirs, d)
+		return kept, found
 	}
-	if !found {
+	keptDirs, found := drop(app.Dirs)
+	keptSystemDirs, foundSystem := drop(app.SystemDirs)
+	if !found && !foundSystem {
 		return fmt.Errorf("%s isn't a tracked folder of %s", relDir, app.Name)
 	}
 	app.Dirs = keptDirs
+	app.SystemDirs = keptSystemDirs
 
 	m.Apps[idx] = app
 	// No stampMachineInfo: nothing was copied, so this machine has no claim
@@ -423,13 +480,7 @@ func (a *App) PreviewUntrackDir(name, relDir string) (UntrackPreview, error) {
 	}
 	app := m.Apps[idx]
 
-	found := false
-	for _, d := range app.Dirs {
-		if d == relDir {
-			found = true
-			break
-		}
-	}
+	scope, found := trackedDirScope(app, relDir)
 	if !found {
 		return UntrackPreview{}, fmt.Errorf("%s isn't a tracked folder of %s", relDir, app.Name)
 	}
@@ -439,19 +490,40 @@ func (a *App) PreviewUntrackDir(name, relDir string) (UntrackPreview, error) {
 		return UntrackPreview{}, err
 	}
 
-	tracked := make(map[string]bool, len(app.Files))
-	for _, f := range app.Files {
+	entries := app.Files
+	if scope == scopeSystem {
+		entries = app.SystemFiles
+	}
+	tracked := make(map[string]bool, len(entries))
+	for _, f := range entries {
 		if pathCoveredByDir(f.Path, relDir) {
 			tracked[f.Path] = true
 		}
 	}
 	p := UntrackPreview{Dir: relDir, KeepsTracked: len(tracked)}
-	for _, rel := range expandTrackedDir(home, relDir, trackedDirSkips(settings.VaultPath)) {
-		if !tracked[rel] {
+	for _, stored := range expandTrackedDir(home, scope, relDir, trackedDirSkips(settings.VaultPath)) {
+		if !tracked[stored] {
 			p.StopsTracking++
 		}
 	}
 	return p, nil
+}
+
+// trackedDirScope finds which of an app's two folder lists holds dir. Both
+// are searched from one place so no caller can check only the home list and
+// report a tracked /etc folder as "isn't a tracked folder of this app".
+func trackedDirScope(app ManifestApp, dir string) (pathScope, bool) {
+	for _, d := range app.Dirs {
+		if d == dir {
+			return scopeHome, true
+		}
+	}
+	for _, d := range app.SystemDirs {
+		if d == dir {
+			return scopeSystem, true
+		}
+	}
+	return scopeHome, false
 }
 
 // RemoveApp deletes an app's entire vault subtree and its manifest entry.
@@ -478,10 +550,10 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 	// Defence in depth on top of loadManifest's name sanitization: prove the
 	// directory about to be deleted recursively is genuinely inside the
 	// vault before deleting it.
-	if _, err := homeRelative(appDir, settings.VaultPath); err != nil {
+	if _, err := relativeUnder(appDir, settings.VaultPath); err != nil {
 		return result, fmt.Errorf("%s isn't inside the vault", app.Name)
 	}
-	if err := os.RemoveAll(appDir); err != nil {
+	if err := vaultRemoveAll(settings.VaultPath, appDir); err != nil {
 		result.Failed = append(result.Failed, RestoreFailure{Path: app.Name, Reason: err.Error()})
 		return result, err
 	}
@@ -544,7 +616,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 
 	oldDir := filepath.Join(settings.VaultPath, oldName)
 	newDir := filepath.Join(settings.VaultPath, newName)
-	if _, err := homeRelative(newDir, settings.VaultPath); err != nil {
+	if _, err := relativeUnder(newDir, settings.VaultPath); err != nil {
 		return fmt.Errorf("%s isn't a usable folder name", newName)
 	}
 	if _, err := os.Lstat(newDir); err == nil {
@@ -554,7 +626,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 	// error — there is simply nothing to move.
 	moved := false
 	if _, err := os.Lstat(oldDir); err == nil {
-		if err := os.Rename(oldDir, newDir); err != nil {
+		if err := vaultRename(settings.VaultPath, oldDir, newDir); err != nil {
 			return err
 		}
 		moved = true
@@ -569,7 +641,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 		// orphans with no route back from inside the app. commitAdd sets the
 		// precedent — a half-applied vault change gets unwound, not reported.
 		if moved {
-			_ = os.Rename(newDir, oldDir)
+			_ = vaultRename(settings.VaultPath, newDir, oldDir)
 		}
 		return err
 	}

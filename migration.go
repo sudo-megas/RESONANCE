@@ -22,6 +22,14 @@ type VaultProbe struct {
 	// the real stake ("3,412 existing items…") instead of the vague "this
 	// folder isn't empty" that used to be a refusal.
 	EntryCount int `json:"entryCount"`
+
+	// NeedsAdmin marks a folder RESONANCE can read but not write, because it
+	// belongs to root. It is not a refusal — it is what the Change Path
+	// overlay turns into an offer, which UseVaultPathWithAdmin accepts.
+	// Anything that is not a permission problem (a read-only mount, a drive
+	// that went away) leaves this false and surfaces as an error instead,
+	// because administrator rights would not help.
+	NeedsAdmin bool `json:"needsAdmin"`
 }
 
 // ProbeVaultPath inspects a folder the maker picked via Change Path, so the
@@ -33,8 +41,17 @@ func (a *App) ProbeVaultPath(path string) (VaultProbe, error) {
 		return VaultProbe{}, describePathProblem(path, err)
 	}
 
+	// Asked here rather than at the moment of the first write, so the overlay
+	// can offer administrator rights while the user is still choosing, not
+	// halfway through a backup. A folder we cannot write for some other
+	// reason leaves this false and fails later with the reason it really has.
+	needsAdmin := false
+	if _, na, err := vaultWritability(path); err == nil {
+		needsAdmin = na
+	}
+
 	if len(entries) == 0 {
-		return VaultProbe{IsEmpty: true}, nil
+		return VaultProbe{IsEmpty: true, NeedsAdmin: needsAdmin}, nil
 	}
 
 	if _, err := os.Stat(manifestPath(path)); err == nil {
@@ -42,10 +59,11 @@ func (a *App) ProbeVaultPath(path string) (VaultProbe, error) {
 		if err != nil {
 			return VaultProbe{}, err
 		}
-		return VaultProbe{HasManifest: true, AppCount: len(m.Apps), EntryCount: len(entries)}, nil
+		return VaultProbe{HasManifest: true, AppCount: len(m.Apps), EntryCount: len(entries), NeedsAdmin: needsAdmin}, nil
 	}
 
-	return VaultProbe{EntryCount: len(entries)}, nil // non-empty, not a vault
+	// Non-empty, not a vault.
+	return VaultProbe{EntryCount: len(entries), NeedsAdmin: needsAdmin}, nil
 }
 
 // VaultDirStatus answers one narrow question — is the vault FOLDER there
@@ -176,6 +194,19 @@ func rejectDangerousVaultPath(path string) error {
 			return errors.New("that folder holds RESONANCE's own settings — choose somewhere else")
 		}
 	}
+	// A vault inside a source root would back itself up. Track /etc as a
+	// folder with the vault sitting at /etc/vault, and the walk carries the
+	// vault's own copies in as tracked files — which then get copied again
+	// on the next backup, and again.
+	//
+	// This has nothing to do with ownership. A vault that belongs to root is
+	// supported and lives wherever you like; what is refused here is the
+	// place, not the permissions, which is why the sentence says so.
+	for _, root := range systemRoots {
+		if containsPath(resolveDir(root), resolved) {
+			return fmt.Errorf("%s is inside %s, which RESONANCE backs up — a vault there would end up backing itself up", path, root)
+		}
+	}
 	return nil
 }
 
@@ -190,7 +221,21 @@ func rejectDangerousVaultPath(path string) error {
 // drive unplugged would then create directories over the unmounted
 // mountpoint. Creating a directory has to be the consequence of a user
 // action that means it.
-func (a *App) UseVaultPath(path string) error {
+func (a *App) UseVaultPath(path string) error { return a.useVaultPath(path, false) }
+
+// UseVaultPathWithAdmin is UseVaultPath for a folder that belongs to root.
+// Separate rather than a flag on the first, because it is a different thing
+// to agree to: the frontend offers it only after ProbeVaultPath reports
+// NeedsAdmin, and taking it up raises the password dialog.
+//
+// Note what it does not do. It never creates the folder — a vault under a
+// root-owned parent cannot be brought into existence by a helper whose reach
+// is the vault itself, so an elevated vault is one you adopt, never one
+// RESONANCE makes for you. ensureVaultDir below already refuses that, and the
+// refusal is the honest one.
+func (a *App) UseVaultPathWithAdmin(path string) error { return a.useVaultPath(path, true) }
+
+func (a *App) useVaultPath(path string, allowAdmin bool) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return errors.New("choose a folder first")
@@ -204,8 +249,24 @@ func (a *App) UseVaultPath(path string) error {
 	if err := ensureVaultDir(path); err != nil {
 		return err
 	}
-	if err := ensureVaultWritable(path); err != nil {
+	// Pointing at a different folder makes everything remembered about the
+	// last one wrong, including whether writing there needed rights — and a
+	// root session opened for a vault RESONANCE is no longer using has no
+	// reason to still be running.
+	forgetVaultAccess()
+	closeHelperSession()
+
+	resolved, needsAdmin, err := vaultWritability(path)
+	if err != nil {
 		return err
+	}
+	if needsAdmin {
+		if !allowAdmin {
+			return errVaultBelongsToRoot(path)
+		}
+		if err := proveElevatedVaultWritable(resolved); err != nil {
+			return err
+		}
 	}
 	// Refuse a folder whose manifest.json is there but unreadable, rather
 	// than adopting it and having every later refresh fail.
@@ -271,6 +332,16 @@ func (a *App) migrateVault(newPath string, remove bool) error {
 	if remove {
 		if err := rejectDangerousVaultPath(oldPath); err != nil {
 			return err
+		}
+		// Move finishes by deleting the old vault folder itself, and that is
+		// the one write the helper structurally cannot do: its whole reach is
+		// the vault, and deleting a folder is a write to that folder's
+		// parent, which belongs to root and is none of RESONANCE's business.
+		//
+		// Copy is unaffected and does the same job: reading a root-owned
+		// vault needs nothing, and the destination is somewhere you own.
+		if _, needsAdmin, err := vaultWritability(oldPath); err == nil && needsAdmin {
+			return errors.New("this vault belongs to root, so RESONANCE can't move it away — use Copy, which leaves the original where it is")
 		}
 	}
 	// Containment is checked twice, on purpose. Once lexically, here, BEFORE
