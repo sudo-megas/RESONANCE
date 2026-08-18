@@ -6,6 +6,7 @@ import { extractErrorMessage, formatSize } from "./util";
 import { formatDateTime } from "./dates";
 import { refreshMirror } from "./rows";
 import { renderDiff } from "./diff";
+import { buildMachineInfoCard } from "./machineinfo";
 
 // Restore reuses GetMirrorRows' three drift states directly, just read in
 // the opposite direction: "missing" (nothing live) becomes what restore
@@ -19,40 +20,6 @@ function classify(state: string): RestoreAction | null {
   if (state === "missing") return "new";
   if (state === "drifted") return "overwrite";
   return null;
-}
-
-function buildMachineInfoCard(info: main.MachineInfo): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "machine-info-card";
-
-  if (!info.kernel && !info.os && !info.hostname && !info.username) {
-    const unknown = document.createElement("p");
-    unknown.className = "machine-info-unknown";
-    unknown.textContent = "Machine info unknown — this vault predates STEP4.";
-    card.appendChild(unknown);
-    return card;
-  }
-
-  const fields: Array<[string, string]> = [
-    ["Kernel", info.kernel || "—"],
-    ["OS", info.os || "—"],
-    ["Hostname", info.hostname || "—"],
-    ["User", info.username || "—"],
-  ];
-  for (const [label, value] of fields) {
-    const row = document.createElement("div");
-    row.className = "machine-info-row";
-    const l = document.createElement("span");
-    l.className = "machine-info-label";
-    l.textContent = label;
-    const v = document.createElement("span");
-    v.className = "machine-info-value";
-    v.textContent = value;
-    row.appendChild(l);
-    row.appendChild(v);
-    card.appendChild(row);
-  }
-  return card;
 }
 
 function summaryLine(newCount: number, overwriteCount: number, skipCount: number): string {
@@ -348,8 +315,23 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   // preview listing nothing, because classify() correctly declines to offer
   // an action for either.
   if (newFiles.length === 0 && overwriteFiles.length === 0) {
-    if (undoInfo?.available) {
+    // Only fall straight through to undo when the undo is one this vault can
+    // actually stand behind. A snapshot taken under a different vault
+    // replays a genuinely valid earlier $HOME state, but not one that has
+    // anything to do with the app the user just clicked; and a snapshot
+    // whose captured bytes are gone cannot put anything back at all.
+    // Neither is hidden — both stay reachable and labelled below and in
+    // Recent activity — but neither gets to be the automatic answer.
+    if (undoInfo?.available && !undoInfo.stale && undoInfo.restorable > 0) {
       openUndoConfirm(row, undoInfo);
+      return;
+    }
+    if (undoInfo?.available) {
+      showToast(
+        undoInfo.restorable === 0
+          ? `${row.name}'s pending undo can no longer be applied — clear it under Recent activity`
+          : `${row.name}'s pending undo was taken under a different vault — see Recent activity`,
+      );
       return;
     }
     const vaultBroken = row.files.some((f) => f.state === "vaultMissing" || f.state === "vaultDamaged");
@@ -400,8 +382,24 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
     const undoLink = document.createElement("button");
     undoLink.type = "button";
     undoLink.className = "restore-preview-undo-link";
-    undoLink.textContent = `Undo last restore instead (${formatDateTime(undoInfo.createdAt)})`;
-    undoLink.addEventListener("click", () => openUndoConfirm(row, undoInfo!));
+    if (undoInfo.restorable === 0) {
+      // Offering it again would be the dead end: it cannot succeed now and
+      // it never will, so the only useful action is to be rid of it.
+      undoLink.textContent = "This undo can no longer be applied \u2014 clear it under Recent activity";
+      undoLink.disabled = true;
+    } else {
+      // Say what it actually is. A snapshot from another vault, or one that
+      // can only put some of its files back, is still worth offering — but
+      // not while implying it is a clean undo of this vault's app.
+      const when = formatDateTime(undoInfo.createdAt);
+      const partial =
+        undoInfo.restorable < undoInfo.fileCount
+          ? ` \u2014 ${undoInfo.restorable} of ${undoInfo.fileCount} files can be put back`
+          : "";
+      const provenance = undoInfo.stale ? ` \u2014 taken under ${undoInfo.vaultPath}` : "";
+      undoLink.textContent = `Undo last restore instead (${when})${partial}${provenance}`;
+      undoLink.addEventListener("click", () => openUndoConfirm(row, undoInfo!));
+    }
     content.appendChild(undoLink);
   }
 

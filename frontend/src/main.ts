@@ -15,6 +15,7 @@ import {
 import { openAddApp } from "./addapp";
 import { refreshMirror, getDriftedApps } from "./rows";
 import { openUpdateAllConfirm } from "./update";
+import { openMachineInfo } from "./machineinfo";
 
 async function init(): Promise<void> {
   await loadPersistedTheme();
@@ -23,6 +24,7 @@ async function init(): Promise<void> {
   document.getElementById("about-btn")!.addEventListener("click", () => openAbout());
   document.getElementById("activity-btn")!.addEventListener("click", () => openRecentActivity());
   document.getElementById("vault-path-btn")!.addEventListener("click", () => openChangePath());
+  document.getElementById("vault-info-btn")!.addEventListener("click", () => void openMachineInfo());
   document.getElementById("add-app-btn")!.addEventListener("click", () => openAddApp());
   document.getElementById("update-all-btn")!.addEventListener("click", async () => {
     // getDriftedApps() reads the last-rendered mirror snapshot, which can

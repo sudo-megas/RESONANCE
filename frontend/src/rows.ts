@@ -7,6 +7,7 @@ import { refreshStatusbar } from "./statusbar";
 import { showToast } from "./toast";
 import { extractErrorMessage, formatSize } from "./util";
 import { openDifferences } from "./differences";
+import { openEditApp } from "./editapp";
 
 // Single source of truth for the mirror's data. Expand/collapse is a pure
 // client-side toggle against this cache — every file's drift state was
@@ -172,6 +173,31 @@ function buildAppRowCells(row: main.AppRow): HTMLDivElement[] {
   vaultName.className = "app-row-name";
   vaultName.textContent = row.name;
   vault.appendChild(vaultName);
+
+  // On the VAULT side, not the spine. The spine's grammar is direction of
+  // flow — restore points left at SYSTEM, update points right at VAULT — and
+  // editing has no direction. Siting it here also makes "this only ever
+  // touches the stored copy" a structural claim rather than a caption: every
+  // operation the overlay performs happens on the pane the button lives on.
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "vault-row-edit-btn";
+  editBtn.setAttribute("aria-label", `Edit ${row.name}`);
+  editBtn.title = "Edit \u2014 add or remove what this app keeps in the vault";
+  const editIcon = document.createElement("span");
+  editIcon.className = "icon-glyph";
+  editIcon.setAttribute("aria-hidden", "true");
+  // fa-tasks. Deliberately not fa-pencil (which would need its own centering
+  // rule) and emphatically not fa-trash, which is the one icon a user reads
+  // as "this destroys my real file".
+  editIcon.textContent = "\uf0ae";
+  editBtn.appendChild(editIcon);
+  editBtn.addEventListener("click", (e) => {
+    // The row itself toggles expand/collapse.
+    e.stopPropagation();
+    void openEditApp(row.name);
+  });
+  vault.appendChild(editBtn);
 
   return [system, spine, vault];
 }

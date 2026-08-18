@@ -8,3 +8,6 @@ build/packaging/pkg/
 build/packaging/src/
 build/packaging/*.pkg.tar.*
 build/packaging/*.deb
+
+# `go build ./...` drops the binary here; it is built by CI, never committed
+resonance

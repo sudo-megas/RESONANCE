@@ -18,6 +18,54 @@ export namespace main {
 	        this.timestamp = source["timestamp"];
 	    }
 	}
+	export class TrackedDir {
+	    path: string;
+	    fileCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TrackedDir(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.fileCount = source["fileCount"];
+	    }
+	}
+	export class AppComposition {
+	    name: string;
+	    files: string[];
+	    dirs: TrackedDir[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AppComposition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.files = source["files"];
+	        this.dirs = this.convertValues(source["dirs"], TrackedDir);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class FileRow {
 	    path: string;
 	    state: string;
@@ -188,6 +236,41 @@ export namespace main {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class RemoveResult {
+	    removedFiles: string[];
+	    removedDirs: string[];
+	    failed: RestoreFailure[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.removedFiles = source["removedFiles"];
+	        this.removedDirs = source["removedDirs"];
+	        this.failed = this.convertValues(source["failed"], RestoreFailure);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class RestoreResult {
 	    new: string[];
 	    overwritten: string[];
@@ -238,10 +321,40 @@ export namespace main {
 	        this.vaultPath = source["vaultPath"];
 	    }
 	}
+	export class SnapshotInfo {
+	    app: string;
+	    createdAt: string;
+	    fileCount: number;
+	    restorable: number;
+	    bytes: number;
+	    stale: boolean;
+	    vaultPath: string;
+	    orphaned: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SnapshotInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.app = source["app"];
+	        this.createdAt = source["createdAt"];
+	        this.fileCount = source["fileCount"];
+	        this.restorable = source["restorable"];
+	        this.bytes = source["bytes"];
+	        this.stale = source["stale"];
+	        this.vaultPath = source["vaultPath"];
+	        this.orphaned = source["orphaned"];
+	    }
+	}
+	
 	export class UndoInfo {
 	    available: boolean;
 	    createdAt: string;
 	    fileCount: number;
+	    restorable: number;
+	    stale: boolean;
+	    vaultPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UndoInfo(source);
@@ -252,6 +365,9 @@ export namespace main {
 	        this.available = source["available"];
 	        this.createdAt = source["createdAt"];
 	        this.fileCount = source["fileCount"];
+	        this.restorable = source["restorable"];
+	        this.stale = source["stale"];
+	        this.vaultPath = source["vaultPath"];
 	    }
 	}
 	export class UndoResult {
@@ -285,6 +401,22 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class UntrackPreview {
+	    dir: string;
+	    keepsTracked: number;
+	    stopsTracking: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UntrackPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dir = source["dir"];
+	        this.keepsTracked = source["keepsTracked"];
+	        this.stopsTracking = source["stopsTracking"];
+	    }
 	}
 	export class UpdateResult {
 	    updated: string[];

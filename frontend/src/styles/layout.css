@@ -106,7 +106,9 @@
 #about-btn .icon-glyph,
 #activity-btn .icon-glyph,
 .spine-restore-btn .icon-glyph,
-.spine-update-btn .icon-glyph {
+.spine-update-btn .icon-glyph,
+.vault-row-edit-btn .icon-glyph,
+.vault-info-btn .icon-glyph {
   transform: translateX(-0.1685em);
 }
 #add-app-btn .icon-glyph {
@@ -220,6 +222,34 @@
 .mirror-header-system,
 .mirror-header-vault {
   background: var(--pane);
+  position: relative;
+}
+/* Absolutely positioned so the VAULT label stays exactly where it has always
+   been — dead centre of its cell. The button is always present, whether the
+   vault holds 0 apps or 500, so the chrome still looks identical at every
+   scale. */
+.vault-info-btn {
+  position: absolute;
+  right: 20px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.vault-info-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.vault-info-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 .mirror-header-spine {
   background: var(--spine);
@@ -356,6 +386,35 @@
   border-color: var(--accent);
 }
 .spine-restore-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Vault-side row edit button. Same 22px box and same hover as the spine
+   buttons, because it is the same kind of thing — a per-row control — and
+   the mirror should not grow a second visual vocabulary for it. It sits in
+   the VAULT cell rather than the spine: the spine's grammar is direction of
+   flow, and editing has no direction, while everything this button opens
+   acts on the stored copy alone. */
+.vault-row-edit-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.vault-row-edit-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.vault-row-edit-btn:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
