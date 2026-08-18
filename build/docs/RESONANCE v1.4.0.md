@@ -113,10 +113,10 @@ The Nerd Font glyphs in `KIND_ICON` are Private-Use-Area literals, and they were
 codepoint before and after the edit — `undo` is still `U+F0E2`. Retyping that block would have
 silently emptied it, which has happened in this project before.
 
-**Not verified here:** that a fresh install with an existing `~/.local/state/resonance/undo/`
-has it removed on first launch. The cleanup is one `RemoveAll` on a path built by a function
-with its own coverage, but the startup hook itself runs only under Wails, and no test in this
-repo starts the GUI.
+The startup cleanup was verified by running it, since no test in this repo starts the GUI and
+the hook runs only under Wails. The maker's own machine had an `undo/` directory holding
+snapshots from the v1.3.0 restore testing; after one launch of this build it was gone and
+`activity.json` sat beside it untouched, at the mtime of the last restore.
 
 ---
 
