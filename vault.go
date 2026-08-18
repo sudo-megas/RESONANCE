@@ -189,42 +189,89 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		}
 	}
 
-	// Validate everything before copying anything.
-	//
+	st, err := stageAdd(home, settings.VaultPath, absPaths, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	appDir := filepath.Join(settings.VaultPath, name)
+	if err := commitAdd(appDir, settings.VaultPath, &st); err != nil {
+		return err
+	}
+
+	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: st.Files, Dirs: st.Dirs})
+	stampMachineInfo(&m)
+	if err := saveManifest(settings.VaultPath, m); err != nil {
+		return err
+	}
+	recordActivity("add", name, summarizeAddActivity(name, len(st.Files)))
+	return nil
+}
+
+// stagedAdd is a fully validated, not-yet-copied add. Files and Sources are
+// parallel: Sources[i] is the live path Files[i] will be copied from.
+type stagedAdd struct {
+	Files   []ManifestFile
+	Sources []string
+	Dirs    []string
+}
+
+// stageAdd validates every picked path and touches no disk state — the
+// "validate everything before copying anything" half of AddApp's contract.
+//
+// haveFiles and haveDirs are what the app already holds, so re-picking
+// something already tracked collapses to a no-op instead of a second entry
+// for the same path. AddApp passes nil for both, because a new app holds
+// nothing yet; AddToApp passes the app's current contents. That is the only
+// difference between the two operations, and keeping it to one parameter is
+// what stops "add" and "add to" from drifting into two classifiers that
+// disagree about what a folder means.
+func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFile, haveDirs []string) (stagedAdd, error) {
+	st := stagedAdd{
+		Files:   make([]ManifestFile, 0, len(absPaths)),
+		Sources: make([]string, 0, len(absPaths)),
+		Dirs:    make([]string, 0),
+	}
+
 	// Deduplication is on the $HOME-relative path rather than the picked
 	// string, so picking both ~/.config/nvim and ~/.config/nvim/init.lua
-	// yields one entry for that file instead of copying it twice.
-	skip := trackedDirSkips(settings.VaultPath)
-	vaultResolved := resolveDir(settings.VaultPath)
+	// yields one entry for that file instead of copying it twice. Seeding the
+	// map with what the app already holds extends the same collapse across
+	// calls, so re-adding a tracked file is a no-op rather than a duplicate.
+	skip := trackedDirSkips(vaultPath)
+	vaultResolved := resolveDir(vaultPath)
 
-	seen := make(map[string]bool, len(absPaths))
-	files := make([]ManifestFile, 0, len(absPaths))
-	sources := make([]string, 0, len(absPaths))
-	dirs := make([]string, 0)
-	seenDir := make(map[string]bool)
+	seen := make(map[string]bool, len(absPaths)+len(haveFiles))
+	for _, f := range haveFiles {
+		seen[f.Path] = true
+	}
+	seenDir := make(map[string]bool, len(haveDirs))
+	for _, d := range haveDirs {
+		seenDir[d] = true
+	}
 
 	addFile := func(rel, abs string) {
 		if seen[rel] {
 			return
 		}
 		seen[rel] = true
-		files = append(files, ManifestFile{Path: rel})
-		sources = append(sources, abs)
+		st.Files = append(st.Files, ManifestFile{Path: rel})
+		st.Sources = append(st.Sources, abs)
 	}
 
 	for _, abs := range absPaths {
 		info, err := os.Stat(abs)
 		if err != nil {
-			return err
+			return st, err
 		}
 
 		if !info.IsDir() {
 			if !info.Mode().IsRegular() {
-				return fmt.Errorf("%s is not a regular file", abs)
+				return st, fmt.Errorf("%s is not a regular file", abs)
 			}
 			rel, err := homeRelative(abs, home)
 			if err != nil {
-				return fmt.Errorf("%s is outside your home folder", abs)
+				return st, fmt.Errorf("%s is outside your home folder", abs)
 			}
 			addFile(filepath.ToSlash(rel), abs)
 			continue
@@ -232,7 +279,7 @@ func (a *App) AddApp(name string, absPaths []string) error {
 
 		rel, err := homeRelative(abs, home)
 		if err != nil {
-			return fmt.Errorf("%s is outside your home folder", abs)
+			return st, fmt.Errorf("%s is outside your home folder", abs)
 		}
 		relSlash := filepath.ToSlash(rel)
 
@@ -245,43 +292,50 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		realRoot := resolveDir(abs)
 		if vaultResolved != "" {
 			if containsPath(realRoot, vaultResolved) {
-				return fmt.Errorf("%s contains your vault — choose a folder that doesn't", abs)
+				return st, fmt.Errorf("%s contains your vault — choose a folder that doesn't", abs)
 			}
 			if containsPath(vaultResolved, realRoot) {
-				return fmt.Errorf("%s is inside your vault — choose a folder on the system side", abs)
+				return st, fmt.Errorf("%s is inside your vault — choose a folder on the system side", abs)
 			}
 		}
 
 		if !seenDir[relSlash] {
 			seenDir[relSlash] = true
-			dirs = append(dirs, relSlash)
+			st.Dirs = append(st.Dirs, relSlash)
 		}
 		for _, f := range expandTrackedDir(home, relSlash, skip) {
 			addFile(f, filepath.Join(home, filepath.FromSlash(f)))
 		}
 	}
 
-	// Validation is complete, so nothing below can be rejected — but the copy
-	// itself can still fail on a full disk or a drive pulled mid-write, and
-	// until v1.2.1 that left every file already written sitting in the vault
-	// with no manifest entry naming it: invisible to the app, unremovable
-	// from inside it, and duplicated by every later Copy or Move. Unwinding
-	// only the paths this call actually wrote is provably safe — each was
-	// created moments earlier by the loop below — unlike deleting the app
-	// directory wholesale, which could take leftovers from an earlier failed
-	// attempt that the user may still want to inspect.
-	appDir := filepath.Join(settings.VaultPath, name)
-	written := make([]string, 0, len(files))
+	return st, nil
+}
+
+// commitAdd copies every staged source into appDir and fills in each entry's
+// Size/Checksum/BackedUpAt from the vault-side copy, so the recorded baseline
+// always describes what actually landed rather than what was read.
+//
+// Validation is complete by the time this runs, so nothing here can be
+// rejected — but the copy itself can still fail on a full disk or a drive
+// pulled mid-write, and until v1.2.1 that left every file already written
+// sitting in the vault with no manifest entry naming it: invisible to the
+// app, unremovable from inside it, and duplicated by every later Copy or
+// Move. Unwinding only the paths this call actually wrote is provably safe —
+// each was created moments earlier by the loop below — unlike deleting the
+// app directory wholesale, which could take leftovers from an earlier failed
+// attempt that the user may still want to inspect.
+func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
+	written := make([]string, 0, len(st.Files))
 	unwind := func() {
 		for i := len(written) - 1; i >= 0; i-- {
 			_ = os.Remove(written[i])
 		}
-		pruneEmptyDirs(appDir, settings.VaultPath)
+		pruneEmptyDirs(appDir, vaultPath)
 	}
 
-	for i, f := range files {
-		dst := filepath.Join(appDir, filepath.FromSlash(f.Path))
-		if err := copyFileAtomic(sources[i], dst); err != nil {
+	for i := range st.Files {
+		dst := filepath.Join(appDir, filepath.FromSlash(st.Files[i].Path))
+		if err := copyFileAtomic(st.Sources[i], dst); err != nil {
 			unwind()
 			return err
 		}
@@ -291,17 +345,10 @@ func (a *App) AddApp(name string, absPaths []string) error {
 			unwind()
 			return err
 		}
-		files[i].Size = size
-		files[i].Checksum = checksum
-		files[i].BackedUpAt = backedUpAt
+		st.Files[i].Size = size
+		st.Files[i].Checksum = checksum
+		st.Files[i].BackedUpAt = backedUpAt
 	}
-
-	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: files, Dirs: dirs})
-	stampMachineInfo(&m)
-	if err := saveManifest(settings.VaultPath, m); err != nil {
-		return err
-	}
-	recordActivity("add", name, summarizeAddActivity(name, len(files)))
 	return nil
 }
 

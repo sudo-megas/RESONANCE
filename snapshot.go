@@ -299,3 +299,43 @@ func summarizeUndoActivity(result UndoResult) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// discardUndoSnapshot removes appName's undo snapshot, including any pending
+// directory abandoned by an interrupted capture.
+//
+// Best-effort on purpose. It runs after an app removal has already committed
+// its vault work, and a snapshot directory that refuses to go must not turn a
+// removal that genuinely succeeded into a reported failure.
+func discardUndoSnapshot(appName string) {
+	root, err := undoRootDir()
+	if err != nil {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(root, appName))
+	_ = os.RemoveAll(filepath.Join(root, appName+".pending"))
+}
+
+// renameUndoSnapshot moves an undo snapshot so it follows a renamed app.
+//
+// Snapshots are keyed by app name and nothing else. Without this the
+// snapshot would stay behind under the old name: unreachable from the
+// renamed app, and waiting to be inherited by whatever app next takes that
+// name — at which point the restore overlay would offer to replay one app's
+// pre-restore bytes over another app's live files.
+func renameUndoSnapshot(oldName, newName string) {
+	root, err := undoRootDir()
+	if err != nil {
+		return
+	}
+	oldDir := filepath.Join(root, oldName)
+	if _, err := os.Lstat(oldDir); err != nil {
+		return // nothing was ever captured for this app
+	}
+	newDir := filepath.Join(root, newName)
+	// Anything already sitting under the new name belongs to a different app
+	// instance. Adopting it would be the exact confusion this function exists
+	// to prevent, so it is discarded rather than kept.
+	_ = os.RemoveAll(newDir)
+	_ = os.Rename(oldDir, newDir)
+	_ = os.RemoveAll(filepath.Join(root, oldName+".pending"))
+}

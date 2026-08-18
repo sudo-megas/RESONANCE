@@ -69,9 +69,11 @@ func manifestPath(vaultPath string) string {
 // drive connected?" actively lied whenever the real cause was permission or
 // a read-only remount — and an external drive remounted read-only after an
 // unclean unmount is the likeliest EROFS case on the hardware this app is
-// built for. Naming the real cause is also what gives v1.2.2's
-// act-as-administrator prompt something honest to attach to: it can offer
-// elevation exactly when the cause is permission, and never otherwise.
+// built for. Naming the real cause is the whole point and the whole payoff:
+// an act-as-administrator prompt was planned to hang off this signal, and was
+// then dropped once it turned out the reported failure was never a permission
+// error at all. The honest sentence is what remains, and it is what the user
+// actually needed.
 func describePathProblem(path string, err error) error {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -411,6 +413,48 @@ func refuseSymlink(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return errors.New(path + " is a symlink — refusing to read through it")
+	}
+	return nil
+}
+
+// refuseSymlinkedParents refuses if any INTERMEDIATE component of rel below
+// base is a symlink. refuseSymlink guards the leaf; this guards the
+// directories leading to it.
+//
+// It exists for deletion specifically, and it is deliberately stricter than
+// vaultDirEscapes (drift.go), which asks only whether a path resolves outside
+// the vault. That question is the right one for reading and writing a
+// tracked file, but not for unlinking one: a symlink planted at
+// <vault>/<app>/.config pointing at <vault>/otherapp resolves *inside* the
+// vault and so passes vaultDirEscapes cleanly, while os.Remove of the
+// manifest-listed ".config/init.lua" would delete another app's backup. One
+// pointing at $HOME/.config would delete the user's live config — the single
+// thing removal must never do. unlink(2) declines to follow a symlink only at
+// the FINAL component; every directory above it is resolved normally, and
+// filepath.Join with homeRelative is purely lexical, so neither notices.
+//
+// The leaf is deliberately NOT checked: os.Remove on a symlink unlinks the
+// link itself without dereferencing it, which is exactly what should happen
+// to a hostile planting — it gets cleaned out of the vault and whatever it
+// pointed at is untouched.
+//
+// A missing intermediate is not an error. There is then nothing to delete,
+// and os.Remove reports that far more precisely than a guess here could.
+func refuseSymlinkedParents(base, rel string) error {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	cur := base
+	for _, seg := range parts[:max(len(parts)-1, 0)] {
+		if seg == "" {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		info, err := os.Lstat(cur)
+		if err != nil {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New(cur + " is a symlink — refusing to delete through it")
+		}
 	}
 	return nil
 }
