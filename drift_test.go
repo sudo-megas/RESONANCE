@@ -529,7 +529,7 @@ func TestSanitizeTrackedDirs_DropsEscapes(t *testing.T) {
 // TestUpdateFromSource_RejectsPathTraversal simulates a crafted or foreign
 // manifest.json -- e.g. one reachable via AdoptVaultPath -- whose file path
 // escapes $HOME. Every other path-consuming function in this codebase
-// (AddApp, RestoreApp, UndoRestore, GetDiffPair) re-validates manifest
+// (AddApp, RestoreApp, GetDiffPair) re-validates manifest
 // paths through relativeUnder before touching disk; UpdateFromSource must
 // too, or a hostile entry gets silently read from outside $HOME and copied
 // into the vault.

@@ -18,12 +18,11 @@ export function formatLastUpdated(iso: string): string {
   return formatted === "—" ? formatted : `last updated ${formatted}`;
 }
 
-// DD MM YYYY plus HH:MM — the undo overlay and status bar (STEP5) need a
-// time-of-day component that formatDate's day-granularity can't give: an
-// undo snapshot or "last activity" moment is often same-day, where a bare
-// date alone can't distinguish 5 minutes ago from 20 hours ago. Still the
-// same literal, non-locale-dependent convention as formatDate, just with
-// minutes.
+// DD MM YYYY plus HH:MM — the status bar needs a time-of-day component that
+// formatDate's day granularity can't give: a "last activity" moment is often
+// same-day, where a bare date cannot distinguish 5 minutes ago from 20 hours
+// ago. Still the same literal, non-locale-dependent convention as formatDate,
+// just with minutes.
 export function formatDateTime(iso: string): string {
   const datePart = formatDate(iso);
   if (datePart === "—") return datePart;

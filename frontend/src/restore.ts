@@ -1,9 +1,8 @@
 import { main } from "../wailsjs/go/models";
-import { GetMachineInfo, GetDiffPair, RestoreApp, GetUndoInfo, UndoRestore } from "../wailsjs/go/main/App";
+import { GetMachineInfo, GetDiffPair, RestoreApp } from "../wailsjs/go/main/App";
 import { openOverlay, closeOverlay } from "./overlay";
 import { showToast } from "./toast";
 import { extractErrorMessage, formatSize } from "./util";
-import { formatDateTime } from "./dates";
 import { refreshMirror, getRow } from "./rows";
 import { renderDiff } from "./diff";
 import { buildMachineInfoCard } from "./machineinfo";
@@ -108,7 +107,7 @@ function openRestoreReport(appName: string, result: main.RestoreResult): void {
     const partial = document.createElement("p");
     partial.className = "restore-report-note";
     partial.textContent =
-      "The files not listed here were restored successfully. Undo is available from this app's row.";
+      "The files not listed here were restored successfully.";
     content.appendChild(partial);
   }
 
@@ -193,100 +192,9 @@ function summarizeResult(result: main.RestoreResult): string {
   return parts.length === 0 ? "Already up to date" : parts.join(", ");
 }
 
-function summarizeUndoResult(result: main.UndoResult): string {
-  const parts: string[] = [];
-  const r = result.restored.length;
-  const f = result.failed.length;
-  if (r > 0) parts.push(r === 1 ? "1 file restored" : `${r} files restored`);
-  if (f > 0) parts.push(f === 1 ? "1 failed" : `${f} failed`);
-  return parts.length === 0 ? "Nothing restored" : parts.join(", ");
-}
-
-// The reduced-mode overlay reachable once a row is back in sync but still
-// has an undo snapshot on hand — same checkbox-gate + commit pattern as a
-// real restore, since undo overwrites live files too and deserves the same
-// "this touches your system" friction. No New/Overwrite list: there's
-// nothing to preview, only a prior state to put back.
-function openUndoConfirm(row: main.AppRow, info: main.UndoInfo): void {
-  const content = document.createElement("div");
-  content.className = "restore-confirm restore-confirm--undo";
-
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "overlay-close";
-  closeBtn.setAttribute("aria-label", "Close");
-  closeBtn.textContent = "";
-  closeBtn.addEventListener("click", () => closeOverlay());
-  content.appendChild(closeBtn);
-
-  const heading = document.createElement("h2");
-  heading.className = "overlay-heading";
-  heading.textContent = `Undo restore for ${row.name}`;
-  content.appendChild(heading);
-
-  const summary = document.createElement("p");
-  summary.className = "restore-preview-summary";
-  const fileWord = info.fileCount === 1 ? "file" : "files";
-  summary.textContent = `Nothing to restore. Undo restore from ${formatDateTime(info.createdAt)} (${info.fileCount} ${fileWord})?`;
-  content.appendChild(summary);
-
-  const gateLabel = document.createElement("label");
-  gateLabel.className = "restore-confirm-gate";
-  const gateCheckbox = document.createElement("input");
-  gateCheckbox.type = "checkbox";
-  gateCheckbox.className = "restore-confirm-checkbox";
-  const gateText = document.createElement("span");
-  gateText.textContent = "I understand this will overwrite files on this system.";
-  gateLabel.appendChild(gateCheckbox);
-  gateLabel.appendChild(gateText);
-  content.appendChild(gateLabel);
-
-  const status = document.createElement("p");
-  status.className = "restore-confirm-status";
-  content.appendChild(status);
-
-  const commitBtn = document.createElement("button");
-  commitBtn.type = "button";
-  commitBtn.className = "restore-confirm-commit-btn";
-  commitBtn.textContent = "Undo Restore";
-  commitBtn.disabled = true;
-  content.appendChild(commitBtn);
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "restore-confirm-cancel-btn";
-  cancelBtn.textContent = "Cancel";
-  cancelBtn.addEventListener("click", () => closeOverlay());
-  content.appendChild(cancelBtn);
-
-  gateCheckbox.addEventListener("change", () => {
-    commitBtn.disabled = !gateCheckbox.checked;
-  });
-
-  commitBtn.addEventListener("click", async () => {
-    commitBtn.disabled = true;
-    cancelBtn.disabled = true;
-    gateCheckbox.disabled = true;
-    status.textContent = "";
-    try {
-      const result = await UndoRestore(row.name);
-      closeOverlay();
-      await refreshMirror();
-      showToast(summarizeUndoResult(result));
-    } catch (err) {
-      status.textContent = extractErrorMessage(err);
-      commitBtn.disabled = !gateCheckbox.checked;
-      cancelBtn.disabled = false;
-      gateCheckbox.disabled = false;
-    }
-  });
-
-  openOverlay(content, { dismissable: true });
-}
-
 // restoreConfirmEpoch guards every await inside openRestoreConfirm against a
 // cross-row race: if the user closes this overlay and opens a restore
-// preview for a different row before an in-flight GetUndoInfo/GetMachineInfo
+// preview for a different row before an in-flight GetMachineInfo
 // call resolves, that stale call must become a no-op instead of clobbering
 // whatever overlay is now actually open. Each call captures the epoch at
 // entry and re-checks it after every await; a later call bumping the epoch
@@ -312,14 +220,6 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   }
   row = fresh;
 
-  let undoInfo: main.UndoInfo | null = null;
-  try {
-    undoInfo = await GetUndoInfo(row.name);
-  } catch {
-    undoInfo = null;
-  }
-  if (epoch !== restoreConfirmEpoch) return;
-
   const newFiles = row.files.filter((f) => classify(f.state) === "new");
   const overwriteFiles = row.files.filter((f) => classify(f.state) === "overwrite");
 
@@ -331,25 +231,6 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   // preview listing nothing, because classify() correctly declines to offer
   // an action for either.
   if (newFiles.length === 0 && overwriteFiles.length === 0) {
-    // Only fall straight through to undo when the undo is one this vault can
-    // actually stand behind. A snapshot taken under a different vault
-    // replays a genuinely valid earlier $HOME state, but not one that has
-    // anything to do with the app the user just clicked; and a snapshot
-    // whose captured bytes are gone cannot put anything back at all.
-    // Neither is hidden — both stay reachable and labelled below and in
-    // Recent activity — but neither gets to be the automatic answer.
-    if (undoInfo?.available && !undoInfo.stale && undoInfo.restorable > 0) {
-      openUndoConfirm(row, undoInfo);
-      return;
-    }
-    if (undoInfo?.available) {
-      showToast(
-        undoInfo.restorable === 0
-          ? `${row.name}'s pending undo can no longer be applied — clear it under Recent activity`
-          : `${row.name}'s pending undo was taken under a different vault — see Recent activity`,
-      );
-      return;
-    }
     // vaultMissing and vaultDamaged are two different sentences, and saying
     // "no vault copy" about a copy that is sitting right there sends the
     // reader looking for a file that was never gone. Damaged is checked
@@ -398,35 +279,6 @@ export async function openRestoreConfirm(row: main.AppRow): Promise<void> {
   summary.className = "restore-preview-summary";
   summary.textContent = summaryLine(newFiles.length, overwriteFiles.length, skipCount);
   content.appendChild(summary);
-
-  // A crashed or partially-failed restore leaves the row drifted — exactly
-  // the state where undo used to become unreachable, since it was only ever
-  // offered when a row was fully in sync. Surfacing it here too means undo
-  // stays reachable in the one case it matters most.
-  if (undoInfo?.available) {
-    const undoLink = document.createElement("button");
-    undoLink.type = "button";
-    undoLink.className = "restore-preview-undo-link";
-    if (undoInfo.restorable === 0) {
-      // Offering it again would be the dead end: it cannot succeed now and
-      // it never will, so the only useful action is to be rid of it.
-      undoLink.textContent = "This undo can no longer be applied \u2014 clear it under Recent activity";
-      undoLink.disabled = true;
-    } else {
-      // Say what it actually is. A snapshot from another vault, or one that
-      // can only put some of its files back, is still worth offering — but
-      // not while implying it is a clean undo of this vault's app.
-      const when = formatDateTime(undoInfo.createdAt);
-      const partial =
-        undoInfo.restorable < undoInfo.fileCount
-          ? ` \u2014 ${undoInfo.restorable} of ${undoInfo.fileCount} files can be put back`
-          : "";
-      const provenance = undoInfo.stale ? ` \u2014 taken under ${undoInfo.vaultPath}` : "";
-      undoLink.textContent = `Undo last restore instead (${when})${partial}${provenance}`;
-      undoLink.addEventListener("click", () => openUndoConfirm(row, undoInfo!));
-    }
-    content.appendChild(undoLink);
-  }
 
   // Say it before the password dialog appears, not after. A restore that
   // touches /etc or /usr will raise one, and a prompt arriving unannounced in

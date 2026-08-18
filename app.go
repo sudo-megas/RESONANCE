@@ -22,6 +22,10 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Undo was removed in v1.4.0. Whatever it left in the state directory is
+	// unreadable dead weight now, so it goes on the way in rather than sitting
+	// there for someone to find and wonder whether it is safe to delete.
+	clearRemovedUndoState()
 }
 
 // GetLicenseText returns the full text of the app's licence, embedded at

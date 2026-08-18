@@ -26,10 +26,6 @@ export function CopyVaultTo(arg1) {
   return window['go']['main']['App']['CopyVaultTo'](arg1);
 }
 
-export function DiscardUndoSnapshot(arg1) {
-  return window['go']['main']['App']['DiscardUndoSnapshot'](arg1);
-}
-
 export function GetAppComposition(arg1) {
   return window['go']['main']['App']['GetAppComposition'](arg1);
 }
@@ -56,14 +52,6 @@ export function GetRecentActivity() {
 
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
-}
-
-export function GetUndoInfo(arg1) {
-  return window['go']['main']['App']['GetUndoInfo'](arg1);
-}
-
-export function ListUndoSnapshots() {
-  return window['go']['main']['App']['ListUndoSnapshots']();
 }
 
 export function MoveVaultTo(arg1) {
@@ -116,10 +104,6 @@ export function SaveSettings(arg1) {
 
 export function ScanVaultOrphans() {
   return window['go']['main']['App']['ScanVaultOrphans']();
-}
-
-export function UndoRestore(arg1) {
-  return window['go']['main']['App']['UndoRestore'](arg1);
 }
 
 export function UntrackDir(arg1, arg2) {

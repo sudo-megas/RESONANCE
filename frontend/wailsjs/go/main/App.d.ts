@@ -14,8 +14,6 @@ export function ChooseVaultPath():Promise<string>;
 
 export function CopyVaultTo(arg1:string):Promise<void>;
 
-export function DiscardUndoSnapshot(arg1:string):Promise<void>;
-
 export function GetAppComposition(arg1:string):Promise<main.AppComposition>;
 
 export function GetDiffPair(arg1:string,arg2:string):Promise<main.DiffPair>;
@@ -29,10 +27,6 @@ export function GetMirrorRows():Promise<Array<main.AppRow>>;
 export function GetRecentActivity():Promise<Array<main.ActivityEntry>>;
 
 export function GetSettings():Promise<main.Settings>;
-
-export function GetUndoInfo(arg1:string):Promise<main.UndoInfo>;
-
-export function ListUndoSnapshots():Promise<Array<main.SnapshotInfo>>;
 
 export function MoveVaultTo(arg1:string):Promise<void>;
 
@@ -59,8 +53,6 @@ export function RestoreApp(arg1:string):Promise<main.RestoreResult>;
 export function SaveSettings(arg1:main.Settings):Promise<void>;
 
 export function ScanVaultOrphans():Promise<main.OrphanReport>;
-
-export function UndoRestore(arg1:string):Promise<main.UndoResult>;
 
 export function UntrackDir(arg1:string,arg2:string):Promise<void>;
 
