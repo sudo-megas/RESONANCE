@@ -55,7 +55,7 @@ func saveTestManifest(t *testing.T, vault, appName string, files []ManifestFile)
 
 func TestCaptureEntry_Absent(t *testing.T) {
 	dir := t.TempDir()
-	entry, err := captureEntry(filepath.Join(dir, "pending"), ".missing", filepath.Join(dir, ".missing"))
+	entry, err := captureEntry(filepath.Join(dir, "pending"), scopeHome, ".missing", filepath.Join(dir, ".missing"))
 	if err != nil {
 		t.Fatalf("captureEntry: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestCaptureEntry_Regular(t *testing.T) {
 	}
 	pendingDir := filepath.Join(dir, "pending")
 
-	entry, err := captureEntry(pendingDir, ".file", destPath)
+	entry, err := captureEntry(pendingDir, scopeHome, ".file", destPath)
 	if err != nil {
 		t.Fatalf("captureEntry: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestCaptureEntry_Symlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry, err := captureEntry(filepath.Join(dir, "pending"), ".link", destPath)
+	entry, err := captureEntry(filepath.Join(dir, "pending"), scopeHome, ".link", destPath)
 	if err != nil {
 		t.Fatalf("captureEntry: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCaptureEntry_ErrorsWhenPendingDirCannotBeCreated(t *testing.T) {
 	}
 	pendingDir := filepath.Join(blocker, "pending")
 
-	if _, err := captureEntry(pendingDir, ".file", destPath); err == nil {
+	if _, err := captureEntry(pendingDir, scopeHome, ".file", destPath); err == nil {
 		t.Fatal("expected an error when the pending directory can't be created")
 	}
 }

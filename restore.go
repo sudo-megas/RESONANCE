@@ -106,13 +106,23 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 		return DiffPair{}, err
 	}
 
-	liveAbs := filepath.Join(home, filepath.FromSlash(relPath))
-	if _, err := relativeUnder(liveAbs, home); err != nil {
+	// The scope is read off the path itself and never taken from the caller.
+	// relPath arrives across the IPC boundary, and what this function does
+	// with it is read a file and ship the bytes into the webview — so the
+	// gate it passes here is classifySource, the same one that let it into
+	// the manifest in the first place. An absolute path is a system path; a
+	// relative one is a home path; a path under neither is refused.
+	liveAbs := filepath.FromSlash(relPath)
+	if !filepath.IsAbs(liveAbs) {
+		liveAbs = filepath.Join(home, liveAbs)
+	}
+	scope, _, err := classifySource(liveAbs, home)
+	if err != nil {
 		return DiffPair{}, err
 	}
 
 	vaultAppDir := filepath.Join(settings.VaultPath, appName)
-	vaultAbs := filepath.Join(vaultAppDir, filepath.FromSlash(relPath))
+	vaultAbs := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(scope, relPath)))
 	if _, err := relativeUnder(vaultAbs, vaultAppDir); err != nil {
 		return DiffPair{}, err
 	}
@@ -204,6 +214,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		destPath   string
 		vaultFile  string
 		wasMissing bool
+		scope      pathScope
 	}
 
 	var entries []SnapshotEntry
@@ -211,11 +222,17 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 
 	app := m.Apps[appIndex]
 	vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
-	for _, f := range app.Files {
-		row := fileDriftRow(home, settings.VaultPath, app.Name, f)
+
+	// One body over both scopes, for the same reason UpdateFromSource shares
+	// one: a system file must not be able to reach the live filesystem on a
+	// different set of checks from a home file. Everything here — reading the
+	// vault copy, capturing the undo snapshot — is unprivileged. The single
+	// privileged step is the write itself, further down.
+	collect := func(scope pathScope, f ManifestFile) {
+		row := fileDriftRow(home, settings.VaultPath, app.Name, scope, f)
 		if row.State == "ok" {
 			result.Skipped = append(result.Skipped, f.Path)
-			continue
+			return
 		}
 		// Nothing to restore from, so say that plainly instead of capturing
 		// an undo snapshot and then failing on the copy with a bare errno.
@@ -225,29 +242,40 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 				reason = "the vault's copy of this file doesn't match what was backed up — update from source to replace it"
 			}
 			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: reason})
-			continue
+			return
 		}
 
-		destPath := filepath.Join(home, filepath.FromSlash(f.Path))
-		if _, err := relativeUnder(destPath, home); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
-			continue
+		destPath := sourceAbs(home, scope, f.Path)
+		if gotScope, _, err := classifySource(destPath, home); err != nil || gotScope != scope {
+			reason := "this entry's path is outside everywhere RESONANCE writes"
+			if err != nil {
+				reason = err.Error()
+			}
+			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: reason})
+			return
 		}
 
-		entry, err := captureEntry(pendingUndoDir, f.Path, destPath)
+		entry, err := captureEntry(pendingUndoDir, scope, f.Path, destPath)
 		if err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
-			continue
+			return
 		}
 		entries = append(entries, entry)
 
-		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(scope, f.Path)))
 		mutations = append(mutations, pendingMutation{
 			path:       f.Path,
 			destPath:   destPath,
 			vaultFile:  vaultFile,
 			wasMissing: row.State == "missing",
+			scope:      scope,
 		})
+	}
+	for _, f := range app.Files {
+		collect(scopeHome, f)
+	}
+	for _, f := range app.SystemFiles {
+		collect(scopeSystem, f)
 	}
 
 	// Stage-then-commit: the snapshot covering every file queued above is
@@ -284,20 +312,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 	}
 
 	for _, mut := range mutations {
-		if err := removeSymlinkAt(mut.destPath); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
-			continue
-		}
-		// A symlink planted at mut.vaultFile by whoever last had write
-		// access to the vault would otherwise have its target read and
-		// copied straight onto destPath — arbitrary file disclosure into
-		// $HOME, the read-side counterpart to removeSymlinkAt's write-side
-		// protection above.
-		if err := refuseSymlink(mut.vaultFile); err != nil {
-			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
-			continue
-		}
-		if err := copyFile(mut.vaultFile, mut.destPath); err != nil {
+		if err := writeRestoredFile(mut.scope, mut.vaultFile, mut.destPath); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: mut.path, Reason: err.Error()})
 			continue
 		}
@@ -311,6 +326,34 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 
 	recordActivity("restore", name, summarizeRestoreActivity(result))
 	return result, nil
+}
+
+// writeRestoredFile puts one vault copy back onto the live filesystem. It is
+// the only place in the program that writes outside $HOME.
+//
+// The vault-side guard runs first and identically for both scopes, because
+// the vault is ours to read either way: a symlink planted at vaultFile by
+// whoever last had write access to the drive would otherwise have its target
+// read and copied straight onto destPath — arbitrary file disclosure, and on
+// the system side it would be disclosure into a root-owned folder.
+//
+// The two scopes then split on who does the writing, not on how carefully it
+// is done. A home destination is unlinked and copied here, unprivileged. A
+// system destination is handed to the helper whole — unlinking a planted
+// symlink in /etc and creating the file there are both privileged, and doing
+// them in one place at root under O_NOFOLLOW is what closes the window
+// between checking a path here and writing it a moment later.
+func writeRestoredFile(scope pathScope, vaultFile, destPath string) error {
+	if err := refuseSymlink(vaultFile); err != nil {
+		return err
+	}
+	if scope == scopeSystem {
+		return restoreSystemFile(vaultFile, destPath)
+	}
+	if err := removeSymlinkAt(destPath); err != nil {
+		return err
+	}
+	return copyFile(vaultFile, destPath)
 }
 
 // summarizeRestoreActivity turns RestoreResult's counts into a short

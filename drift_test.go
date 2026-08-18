@@ -209,7 +209,7 @@ func TestFileDriftRow_RejectsPathTraversal(t *testing.T) {
 
 	// An empty vault root isolates this to the source-side guard, which is
 	// what the test is about.
-	row := fileDriftRow(home, "", "", ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
+	row := fileDriftRow(home, "", "", scopeHome, ManifestFile{Path: hostilePath, Checksum: checksum, Size: size})
 	if row.State != "missing" {
 		t.Fatalf("State = %q, want missing for a path-traversal entry (must never read outside $HOME)", row.State)
 	}
@@ -252,10 +252,10 @@ func TestExpandTrackedDir_RefusesIntermediateSymlink(t *testing.T) {
 	}
 
 	// Lexically flawless: no "..", no absolute path, strictly under $HOME.
-	if got := expandTrackedDir(home, "link/sub", nil); len(got) != 0 {
+	if got := expandTrackedDir(home, scopeHome, "link/sub", nil); len(got) != 0 {
 		t.Fatalf("walked outside $HOME through an intermediate symlink: %v", got)
 	}
-	if got := expandTrackedDir(home, "link", nil); len(got) != 0 {
+	if got := expandTrackedDir(home, scopeHome, "link", nil); len(got) != 0 {
 		t.Fatalf("walked outside $HOME through a symlinked root: %v", got)
 	}
 }
@@ -280,7 +280,7 @@ func TestExpandTrackedDir_SkipsVaultAndSymlinkedFiles(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	got := expandTrackedDir(home, "dots", []string{vault})
+	got := expandTrackedDir(home, scopeHome, "dots", []string{vault})
 	if len(got) != 1 || got[0] != "dots/real.conf" {
 		t.Fatalf("expandTrackedDir = %v, want exactly [dots/real.conf]", got)
 	}
@@ -300,14 +300,14 @@ func TestFileDriftRow_ReportsMissingVaultCopy(t *testing.T) {
 	f := seedVaultFile(t, vault, "bash", ".bashrc", "live")
 	vaultAppDir := filepath.Join(vault, "bash")
 
-	if row := fileDriftRow(home, vault, "bash", f); row.State != "ok" {
+	if row := fileDriftRow(home, vault, "bash", scopeHome, f); row.State != "ok" {
 		t.Fatalf("State = %q, want ok while both copies are present", row.State)
 	}
 
 	if err := os.Remove(filepath.Join(vaultAppDir, ".bashrc")); err != nil {
 		t.Fatal(err)
 	}
-	row := fileDriftRow(home, vault, "bash", f)
+	row := fileDriftRow(home, vault, "bash", scopeHome, f)
 	if row.State != "vaultMissing" {
 		t.Fatalf("State = %q, want vaultMissing once the backup is gone", row.State)
 	}
@@ -346,7 +346,7 @@ func TestFileDriftRow_RefusesVaultPathEscapingViaSymlink(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	row := fileDriftRow(home, vault, "bash", ManifestFile{
+	row := fileDriftRow(home, vault, "bash", scopeHome, ManifestFile{
 		Path: ".bashrc", Size: size, Checksum: checksum, BackedUpAt: backedUpAt,
 	})
 	if row.State == "ok" {

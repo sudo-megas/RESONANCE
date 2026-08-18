@@ -91,7 +91,13 @@ func (a *App) PickFolders() ([]string, error) {
 type PathPreview struct {
 	FileCount   int      `json:"fileCount"`
 	FolderCount int      `json:"folderCount"`
-	Folders     []string `json:"folders"` // $HOME-relative, for display
+	Folders     []string `json:"folders"` // $HOME-relative, or absolute for /etc and /usr
+
+	// SystemFolderCount is how many of Folders sit under /etc or /usr. The
+	// overlay says so before the add, because a system folder's files can be
+	// backed up freely but only put back with administrator rights — which is
+	// a thing to learn while choosing, not at the first restore.
+	SystemFolderCount int `json:"systemFolderCount"`
 }
 
 // PreviewPaths counts what AddApp would take on, using the same expansion
@@ -111,20 +117,23 @@ func (a *App) PreviewPaths(absPaths []string) (PathPreview, error) {
 		if err != nil {
 			continue
 		}
+		scope, stored, err := classifySource(abs, home)
+		if err != nil {
+			continue
+		}
 		if !info.IsDir() {
-			if rel, err := relativeUnder(abs, home); err == nil && !seen[rel] {
-				seen[rel] = true
+			if !seen[stored] {
+				seen[stored] = true
 				preview.FileCount++
 			}
 			continue
 		}
-		rel, err := relativeUnder(abs, home)
-		if err != nil {
-			continue
-		}
 		preview.FolderCount++
-		preview.Folders = append(preview.Folders, filepath.ToSlash(rel))
-		for _, f := range expandTrackedDir(home, rel, skip) {
+		preview.Folders = append(preview.Folders, stored)
+		if scope == scopeSystem {
+			preview.SystemFolderCount++
+		}
+		for _, f := range expandTrackedDir(home, scope, stored, skip) {
 			if !seen[f] {
 				seen[f] = true
 				preview.FileCount++
@@ -192,7 +201,7 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		}
 	}
 
-	st, err := stageAdd(home, settings.VaultPath, absPaths, nil, nil)
+	st, err := stageAdd(home, settings.VaultPath, absPaths, ManifestApp{})
 	if err != nil {
 		return err
 	}
@@ -202,7 +211,14 @@ func (a *App) AddApp(name string, absPaths []string) error {
 		return err
 	}
 
-	m.Apps = append(m.Apps, ManifestApp{Name: name, Files: st.Files, Dirs: st.Dirs})
+	homeFiles, systemFiles := st.manifestFiles()
+	m.Apps = append(m.Apps, ManifestApp{
+		Name:        name,
+		Files:       homeFiles,
+		Dirs:        st.Dirs,
+		SystemFiles: systemFiles,
+		SystemDirs:  st.SystemDirs,
+	})
 	stampMachineInfo(&m)
 	if err := saveManifest(settings.VaultPath, m); err != nil {
 		return err
@@ -211,12 +227,47 @@ func (a *App) AddApp(name string, absPaths []string) error {
 	return nil
 }
 
-// stagedAdd is a fully validated, not-yet-copied add. Files and Sources are
-// parallel: Sources[i] is the live path Files[i] will be copied from.
+// stagedFile is one validated, not-yet-copied file.
+//
+// Entry.Path and VaultRel stopped being the same string in v1.3.0, which is
+// why VaultRel is carried rather than derived at copy time. A home file's
+// manifest entry is its $HOME-relative path and it is stored in the vault at
+// that same path. A system file's entry is the absolute /etc/alsa/alsa.conf,
+// but it cannot be written to the vault there — it lands at
+// .system/etc/alsa/alsa.conf, under the reserved segment that keeps it from
+// colliding with a literal $HOME/etc file of the same name.
+type stagedFile struct {
+	Entry    ManifestFile
+	Source   string // live path to copy from
+	VaultRel string // slash-separated, inside the app's vault folder
+	Scope    pathScope
+}
+
+// stagedAdd is a fully validated, not-yet-copied add.
 type stagedAdd struct {
-	Files   []ManifestFile
-	Sources []string
-	Dirs    []string
+	Files []stagedFile
+
+	// Dirs are tracked folders under $HOME, stored relative; SystemDirs are
+	// tracked folders under /etc or /usr, stored absolute. Two fields rather
+	// than one tagged list because that is how the manifest holds them, and
+	// a single list would have to be split at every save anyway.
+	Dirs       []string
+	SystemDirs []string
+}
+
+// manifestFiles splits the staged entries into the two arrays the manifest
+// stores them in. Done once, here, rather than at each of the two call sites.
+func (st *stagedAdd) manifestFiles() (home, system []ManifestFile) {
+	home = make([]ManifestFile, 0, len(st.Files))
+	system = make([]ManifestFile, 0)
+	for _, f := range st.Files {
+		if f.Scope == scopeSystem {
+			system = append(system, f.Entry)
+			continue
+		}
+		home = append(home, f.Entry)
+	}
+	return home, system
 }
 
 // stageAdd validates every picked path and touches no disk state — the
@@ -229,37 +280,51 @@ type stagedAdd struct {
 // difference between the two operations, and keeping it to one parameter is
 // what stops "add" and "add to" from drifting into two classifiers that
 // disagree about what a folder means.
-func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFile, haveDirs []string) (stagedAdd, error) {
+func stageAdd(home, vaultPath string, absPaths []string, app ManifestApp) (stagedAdd, error) {
 	st := stagedAdd{
-		Files:   make([]ManifestFile, 0, len(absPaths)),
-		Sources: make([]string, 0, len(absPaths)),
-		Dirs:    make([]string, 0),
+		Files:      make([]stagedFile, 0, len(absPaths)),
+		Dirs:       make([]string, 0),
+		SystemDirs: make([]string, 0),
 	}
 
-	// Deduplication is on the $HOME-relative path rather than the picked
-	// string, so picking both ~/.config/nvim and ~/.config/nvim/init.lua
-	// yields one entry for that file instead of copying it twice. Seeding the
-	// map with what the app already holds extends the same collapse across
-	// calls, so re-adding a tracked file is a no-op rather than a duplicate.
+	// Deduplication is on the stored path rather than the picked string, so
+	// picking both ~/.config/nvim and ~/.config/nvim/init.lua yields one entry
+	// for that file instead of copying it twice. Seeding the map with what the
+	// app already holds extends the same collapse across calls, so re-adding a
+	// tracked file is a no-op rather than a duplicate.
+	//
+	// Home and system paths share one map safely: a stored home path is always
+	// relative and a stored system path is always absolute, so the two can
+	// never collide on a string.
 	skip := trackedDirSkips(vaultPath)
 	vaultResolved := resolveDir(vaultPath)
 
-	seen := make(map[string]bool, len(absPaths)+len(haveFiles))
-	for _, f := range haveFiles {
+	seen := make(map[string]bool, len(absPaths)+len(app.Files)+len(app.SystemFiles))
+	for _, f := range app.Files {
 		seen[f.Path] = true
 	}
-	seenDir := make(map[string]bool, len(haveDirs))
-	for _, d := range haveDirs {
+	for _, f := range app.SystemFiles {
+		seen[f.Path] = true
+	}
+	seenDir := make(map[string]bool, len(app.Dirs)+len(app.SystemDirs))
+	for _, d := range app.Dirs {
+		seenDir[d] = true
+	}
+	for _, d := range app.SystemDirs {
 		seenDir[d] = true
 	}
 
-	addFile := func(rel, abs string) {
-		if seen[rel] {
+	addFile := func(scope pathScope, stored, abs string) {
+		if seen[stored] {
 			return
 		}
-		seen[rel] = true
-		st.Files = append(st.Files, ManifestFile{Path: rel})
-		st.Sources = append(st.Sources, abs)
+		seen[stored] = true
+		st.Files = append(st.Files, stagedFile{
+			Entry:    ManifestFile{Path: stored},
+			Source:   abs,
+			VaultRel: vaultRelFor(scope, stored),
+			Scope:    scope,
+		})
 	}
 
 	for _, abs := range absPaths {
@@ -268,23 +333,29 @@ func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFil
 			return st, err
 		}
 
+		scope, stored, err := classifySource(abs, home)
+		if err != nil {
+			return st, err
+		}
+
 		if !info.IsDir() {
 			if !info.Mode().IsRegular() {
 				return st, fmt.Errorf("%s is not a regular file", abs)
 			}
-			rel, err := relativeUnder(abs, home)
-			if err != nil {
-				return st, fmt.Errorf("%s is outside your home folder", abs)
+			// Readability is proved here, in the validation pass, rather than
+			// discovered by the copy. Most of /etc is world-readable, but
+			// shadow, sudoers and the private keys under ssl are not, and
+			// RESONANCE reads as you — v1.3.0 deliberately ships no elevated
+			// read, because those files are secrets and a vault lives on a
+			// stick you carry around. Finding out during commitAdd would mean
+			// an app half-added and then unwound; finding out now is one
+			// sentence and nothing written.
+			if err := proveReadable(abs); err != nil {
+				return st, err
 			}
-			addFile(filepath.ToSlash(rel), abs)
+			addFile(scope, stored, abs)
 			continue
 		}
-
-		rel, err := relativeUnder(abs, home)
-		if err != nil {
-			return st, fmt.Errorf("%s is outside your home folder", abs)
-		}
-		relSlash := filepath.ToSlash(rel)
 
 		// Both directions are hazards when the vault lives under $HOME.
 		// A folder containing the vault would enumerate the vault into
@@ -302,16 +373,38 @@ func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFil
 			}
 		}
 
-		if !seenDir[relSlash] {
-			seenDir[relSlash] = true
-			st.Dirs = append(st.Dirs, relSlash)
+		if !seenDir[stored] {
+			seenDir[stored] = true
+			if scope == scopeSystem {
+				st.SystemDirs = append(st.SystemDirs, stored)
+			} else {
+				st.Dirs = append(st.Dirs, stored)
+			}
 		}
-		for _, f := range expandTrackedDir(home, relSlash, skip) {
-			addFile(f, filepath.Join(home, filepath.FromSlash(f)))
+		for _, f := range expandTrackedDir(home, scope, stored, skip) {
+			addFile(scope, f, sourceAbs(home, scope, f))
 		}
 	}
 
 	return st, nil
+}
+
+// proveReadable opens a file for reading and closes it again. Nothing else
+// in the program answers "can I actually read this?" honestly — a mode-bit
+// or ACL test can disagree with the read that follows, exactly as
+// ensureVaultWritable exists rather than a permission calculation on the
+// write side.
+func proveReadable(abs string) error {
+	f, err := os.Open(abs)
+	if err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return fmt.Errorf(
+				"no permission to read %s — RESONANCE runs as you, and this release doesn't ask for administrator rights to read (the files under /etc you can't read are passwords and private keys, which don't belong in a vault you carry around)",
+				abs)
+		}
+		return err
+	}
+	return f.Close()
 }
 
 // commitAdd copies every staged source into appDir and fills in each entry's
@@ -337,7 +430,13 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 	}
 
 	for i := range st.Files {
-		dst := filepath.Join(appDir, filepath.FromSlash(st.Files[i].Path))
+		// VaultRel, not Entry.Path: for a system file those differ, and only
+		// VaultRel is a path that may be joined onto the vault. Joining the
+		// absolute /etc/alsa/alsa.conf onto appDir would discard appDir
+		// entirely and write straight to /etc — filepath.Join(a, "/etc/x")
+		// does not escape, but the equivalent slip elsewhere would, and the
+		// staged VaultRel exists so this call site never has to think about it.
+		dst := filepath.Join(appDir, filepath.FromSlash(st.Files[i].VaultRel))
 		// The write-side containment guard UpdateFromSource applies before
 		// every copy (drift.go). copyFileAtomic calls MkdirAll and then
 		// creates its temp file inside that directory, and neither declines
@@ -346,9 +445,9 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 		// Until now this was the one remaining write path without the check.
 		if vaultDirEscapes(vaultPath, dst) {
 			unwind()
-			return fmt.Errorf("%s can't be written — something in the vault points outside it", st.Files[i].Path)
+			return fmt.Errorf("%s can't be written — something in the vault points outside it", st.Files[i].Entry.Path)
 		}
-		if err := copyFileAtomic(st.Sources[i], dst); err != nil {
+		if err := copyFileAtomic(st.Files[i].Source, dst); err != nil {
 			unwind()
 			return err
 		}
@@ -358,9 +457,9 @@ func commitAdd(appDir, vaultPath string, st *stagedAdd) error {
 			unwind()
 			return err
 		}
-		st.Files[i].Size = size
-		st.Files[i].Checksum = checksum
-		st.Files[i].BackedUpAt = backedUpAt
+		st.Files[i].Entry.Size = size
+		st.Files[i].Entry.Checksum = checksum
+		st.Files[i].Entry.BackedUpAt = backedUpAt
 	}
 	return nil
 }
@@ -435,6 +534,18 @@ func scanVaultOrphans(vaultPath string) (OrphanReport, error) {
 				continue
 			}
 			known[path.Join(app.Name, f.Path)] = true
+		}
+		// System files are accounted for at their vault location, not their
+		// manifest path — an absolute /etc/alsa/alsa.conf is not local and
+		// would be skipped by the test above, so without this every single
+		// backed-up system file reads as an orphan and the delete surface
+		// offers to destroy all of them.
+		for _, f := range app.SystemFiles {
+			vaultRel := systemVaultRel(f.Path)
+			if !filepath.IsLocal(filepath.FromSlash(vaultRel)) {
+				continue
+			}
+			known[path.Join(app.Name, vaultRel)] = true
 		}
 	}
 

@@ -15,6 +15,13 @@ import (
 type FileRow struct {
 	Path string `json:"path"`
 
+	// System marks a row whose Path is an absolute /etc or /usr path rather
+	// than a $HOME-relative one. The UI needs it for two different reasons:
+	// to render the path as what it is, and to know that restoring this row
+	// will ask for administrator rights — RESONANCE runs as you, and those
+	// folders do not belong to you.
+	System bool `json:"system"`
+
 	// State is one of:
 	//   "ok"            source and vault agree
 	//   "drifted"       source has changed since it was backed up
@@ -72,13 +79,13 @@ type UpdateResult struct {
 // baseline) rather than crashing.
 func backfillChecksums(vaultPath string, m *Manifest) bool {
 	changed := false
-	for ai := range m.Apps {
-		for fi := range m.Apps[ai].Files {
-			f := &m.Apps[ai].Files[fi]
+	backfill := func(appName string, entries []ManifestFile, scope pathScope) {
+		for fi := range entries {
+			f := &entries[fi]
 			if f.Checksum != "" {
 				continue
 			}
-			vaultFile := filepath.Join(vaultPath, m.Apps[ai].Name, filepath.FromSlash(f.Path))
+			vaultFile := filepath.Join(vaultPath, appName, filepath.FromSlash(vaultRelFor(scope, f.Path)))
 			if err := refuseSymlink(vaultFile); err != nil {
 				continue
 			}
@@ -91,6 +98,16 @@ func backfillChecksums(vaultPath string, m *Manifest) bool {
 			f.BackedUpAt = backedUpAt
 			changed = true
 		}
+	}
+	for ai := range m.Apps {
+		// System entries only ever arrive with a checksum already set — they
+		// are newer than checksums themselves — but they are passed through
+		// here anyway rather than assumed clean. A manifest is untrusted
+		// input, and an entry that reaches this function with an empty
+		// checksum would otherwise be reported drifted forever with nothing
+		// able to give it a baseline.
+		backfill(m.Apps[ai].Name, m.Apps[ai].Files, scopeHome)
+		backfill(m.Apps[ai].Name, m.Apps[ai].SystemFiles, scopeSystem)
 	}
 	return changed
 }
@@ -142,10 +159,14 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 	for _, app := range m.Apps {
 		row := AppRow{Name: app.Name, Files: make([]FileRow, 0, len(app.Files))}
 
-		known := make(map[string]bool, len(app.Files))
+		known := make(map[string]bool, len(app.Files)+len(app.SystemFiles))
 		for _, f := range app.Files {
 			known[f.Path] = true
-			row.Files = append(row.Files, fileDriftRow(home, settings.VaultPath, app.Name, f))
+			row.Files = append(row.Files, fileDriftRow(home, settings.VaultPath, app.Name, scopeHome, f))
+		}
+		for _, f := range app.SystemFiles {
+			known[f.Path] = true
+			row.Files = append(row.Files, fileDriftRow(home, settings.VaultPath, app.Name, scopeSystem, f))
 		}
 
 		// Tracked folders are reported, never materialised here: this is a
@@ -154,19 +175,23 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 		// entry yet shows up as "untracked", which marks the app drifted, and
 		// the existing "Update from source" button is what actually copies it
 		// in and records it.
-		for _, d := range app.Dirs {
-			for _, rel := range expandTrackedDir(home, d, skip) {
-				if known[rel] {
-					continue
+		trackedIn := func(scope pathScope, dirs []string) {
+			for _, d := range dirs {
+				for _, stored := range expandTrackedDir(home, scope, d, skip) {
+					if known[stored] {
+						continue
+					}
+					known[stored] = true
+					fr := FileRow{Path: stored, State: "untracked", System: scope == scopeSystem}
+					if info, err := os.Stat(sourceAbs(home, scope, stored)); err == nil {
+						fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
+					}
+					row.Files = append(row.Files, fr)
 				}
-				known[rel] = true
-				fr := FileRow{Path: rel, State: "untracked"}
-				if info, err := os.Stat(filepath.Join(home, filepath.FromSlash(rel))); err == nil {
-					fr.SourceModified = info.ModTime().UTC().Format(time.RFC3339)
-				}
-				row.Files = append(row.Files, fr)
 			}
 		}
+		trackedIn(scopeHome, app.Dirs)
+		trackedIn(scopeSystem, app.SystemDirs)
 
 		for _, fr := range row.Files {
 			if fr.State != "ok" {
@@ -189,11 +214,19 @@ func (a *App) GetMirrorRows() ([]AppRow, error) {
 // app's subdirectory on purpose: containment has to be measured against the
 // vault itself, or an app directory that is a symlink pointing outside would
 // be compared against its own target and trivially "contain" it.
-func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
-	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt, Size: f.Size}
+func fileDriftRow(home, vaultRoot, appName string, scope pathScope, f ManifestFile) FileRow {
+	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt, Size: f.Size, System: scope == scopeSystem}
 
-	sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
-	if _, err := relativeUnder(sourcePath, home); err != nil {
+	sourcePath := sourceAbs(home, scope, f.Path)
+	// Re-validated through the same classifier that accepted it, rather than
+	// through a check hand-written for this one call site. A manifest is
+	// untrusted input — a foreign one arrives with every AdoptVaultPath — and
+	// an entry hand-edited to "../../etc/shadow" or to a system path under no
+	// allowed root must read as missing here, not be stat'd. Comparing the
+	// scope back guards the other direction too: an absolute path filed in
+	// Files, or a relative one filed in SystemFiles, is a manifest lying
+	// about what it holds.
+	if gotScope, _, err := classifySource(sourcePath, home); err != nil || gotScope != scope {
 		fr.State = "missing"
 		return fr
 	}
@@ -219,7 +252,7 @@ func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
 	// content verification is left to the explicit per-app differences view.
 	if vaultRoot != "" {
 		vaultAppDir := filepath.Join(vaultRoot, appName)
-		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(scope, f.Path)))
 		// Lexical containment first — cheap, and it rejects the obvious
 		// "../.." shapes without touching the disk.
 		if _, err := relativeUnder(vaultFile, vaultAppDir); err != nil {
@@ -331,7 +364,8 @@ func vaultDirEscapes(vaultRoot, vaultFile string) bool {
 }
 
 // expandTrackedDir lists every regular file currently under one tracked
-// folder, as $HOME-relative slash-separated paths.
+// folder, in the form the manifest stores it: $HOME-relative and slash
+// separated for a folder under $HOME, absolute for one under /etc or /usr.
 //
 // It resolves symlinks before trusting anything, and that is the whole point
 // of the function rather than a detail. relativeUnder is filepath.Rel plus a
@@ -346,21 +380,43 @@ func vaultDirEscapes(vaultRoot, vaultFile string) bool {
 // $HOME. The result would be /etc/* listed as this app's files, one click
 // away from being copied into the vault.
 //
-// Resolving the root and deriving every result from the resolved home is
-// what actually contains the walk. Symlinked entries are skipped outright
+// Resolving the root and deriving every result from the resolved scope root
+// is what actually contains the walk. Symlinked entries are skipped outright
 // rather than emitted, and skipResolved (the vault and RESONANCE's own state
 // directory, already resolved) is compared against resolved paths too — a
 // vault at ~/dots reached through ~/backup would otherwise enumerate itself.
-func expandTrackedDir(home, relDir string, skipResolved []string) []string {
-	realHome := resolveDir(home)
+//
+// The containment root is per scope, and that matters more here than
+// anywhere else in v1.3.0. /etc is full of symlinks that leave it —
+// resolv.conf into /run, os-release into /usr/lib — so a walk anchored to
+// "any allowed root" would happily carry a file from /usr into an app that
+// tracks /etc, and one anchored to $HOME would reject every system file
+// there is. Each tracked folder is contained against the one root it was
+// classified under and no other.
+func expandTrackedDir(home string, scope pathScope, storedDir string, skipResolved []string) []string {
+	scopeRoot, err := sourceScopeRoot(home, scope, storedDir)
+	if err != nil {
+		return nil
+	}
+	// The logical root is what results are reported against: the walk runs on
+	// resolved paths, but a stored entry has to name the path a user would
+	// recognise and that classifySource will accept again later.
+	logicalRoot := home
+	if scope == scopeSystem {
+		root, ok := systemRootOf(filepath.FromSlash(storedDir))
+		if !ok {
+			return nil
+		}
+		logicalRoot = root
+	}
 
-	absDir := filepath.Join(home, filepath.FromSlash(relDir))
+	absDir := sourceAbs(home, scope, storedDir)
 	realRoot, err := filepath.EvalSymlinks(absDir)
 	if err != nil {
 		return nil // gone, or unreadable — nothing to report
 	}
-	if _, err := relativeUnder(realRoot, realHome); err != nil {
-		return nil // escapes $HOME once resolved, whatever the string said
+	if _, err := relativeUnder(realRoot, scopeRoot); err != nil {
+		return nil // escapes its own root once resolved, whatever the string said
 	}
 	// A root sitting INSIDE the vault (or inside RESONANCE's state directory)
 	// has nothing to offer but the app's own stored copies, so the whole walk
@@ -396,8 +452,12 @@ func expandTrackedDir(home, relDir string, skipResolved []string) []string {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, err := relativeUnder(path, realHome)
+		rel, err := relativeUnder(path, scopeRoot)
 		if err != nil {
+			return nil
+		}
+		if scope == scopeSystem {
+			out = append(out, filepath.ToSlash(filepath.Join(logicalRoot, rel)))
 			return nil
 		}
 		out = append(out, filepath.ToSlash(rel))
@@ -456,39 +516,50 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 	// one place they become real manifest entries, so "→ Update from source"
 	// keeps its existing single meaning — bring the vault in line with the
 	// system — and no separate "refresh sources" button has to exist.
-	if len(app.Dirs) > 0 {
+	if len(app.Dirs) > 0 || len(app.SystemDirs) > 0 {
 		skip := []string{resolveDir(settings.VaultPath)}
 		if stateDir, err := resonanceStateDir(); err == nil {
 			skip = append(skip, resolveDir(stateDir))
 		}
-		known := make(map[string]bool, len(app.Files))
+		known := make(map[string]bool, len(app.Files)+len(app.SystemFiles))
 		for _, f := range app.Files {
 			known[f.Path] = true
 		}
-		for _, d := range app.Dirs {
-			for _, rel := range expandTrackedDir(home, d, skip) {
-				if known[rel] {
-					continue
+		for _, f := range app.SystemFiles {
+			known[f.Path] = true
+		}
+		materialise := func(scope pathScope, dirs []string, into *[]ManifestFile) {
+			for _, d := range dirs {
+				for _, stored := range expandTrackedDir(home, scope, d, skip) {
+					if known[stored] {
+						continue
+					}
+					known[stored] = true
+					*into = append(*into, ManifestFile{Path: stored})
 				}
-				known[rel] = true
-				app.Files = append(app.Files, ManifestFile{Path: rel})
 			}
 		}
+		materialise(scopeHome, app.Dirs, &app.Files)
+		materialise(scopeSystem, app.SystemDirs, &app.SystemFiles)
 	}
 
-	for i := range app.Files {
-		f := &app.Files[i]
-		sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
+	// One body, run over both scopes, so a system file can never end up on a
+	// different set of guards from a home file by accident. Everything below
+	// reads the source and writes the vault — both unprivileged operations —
+	// which is why backing up /etc needs no rights at all. Only putting it
+	// back does.
+	updateOne := func(scope pathScope, f *ManifestFile) error {
+		sourcePath := sourceAbs(home, scope, f.Path)
 		vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
-		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
+		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(vaultRelFor(scope, f.Path)))
 
-		if _, err := relativeUnder(sourcePath, home); err != nil {
+		if gotScope, _, err := classifySource(sourcePath, home); err != nil || gotScope != scope {
 			result.Missing = append(result.Missing, f.Path)
-			continue
+			return nil
 		}
 		if _, err := relativeUnder(vaultFile, vaultAppDir); err != nil {
 			result.Missing = append(result.Missing, f.Path)
-			continue
+			return nil
 		}
 		// The write-side twin of fileDriftRow's check, and it must be here
 		// rather than only there: copyFileAtomic below calls MkdirAll and then
@@ -500,13 +571,13 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 		// vaultDamaged row the UI says Update will fix could never converge.
 		if vaultDirEscapes(settings.VaultPath, vaultFile) {
 			result.Blocked = append(result.Blocked, f.Path)
-			continue
+			return nil
 		}
 
 		srcInfo, err := os.Stat(sourcePath)
 		if err != nil || !srcInfo.Mode().IsRegular() {
 			result.Missing = append(result.Missing, f.Path)
-			continue
+			return nil
 		}
 
 		// "The source still matches the checksum we recorded" is only a
@@ -519,21 +590,43 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 		if f.Checksum != "" && srcInfo.Size() == f.Size && vaultCopyIntact(vaultFile, f.Size) {
 			if sum, err := fileChecksum(sourcePath); err == nil && sum == f.Checksum {
 				result.Skipped = append(result.Skipped, f.Path)
-				continue
+				return nil
 			}
 		}
 
+		// A system file readable a moment ago can stop being readable — a
+		// package update tightening a mode is the ordinary way — and
+		// copyFileAtomic would surface that as a bare errno that aborts the
+		// whole update. Reporting it as this one file's problem keeps the
+		// other files in the app updating, which is the same shape every
+		// other per-entry failure in this program takes.
 		if err := copyFileAtomic(sourcePath, vaultFile); err != nil {
-			return result, err
+			if errors.Is(err, fs.ErrPermission) {
+				result.Missing = append(result.Missing, f.Path)
+				return nil
+			}
+			return err
 		}
 		size, checksum, backedUpAt, err := vaultFileMeta(vaultFile)
 		if err != nil {
-			return result, err
+			return err
 		}
 		f.Size = size
 		f.Checksum = checksum
 		f.BackedUpAt = backedUpAt
 		result.Updated = append(result.Updated, f.Path)
+		return nil
+	}
+
+	for i := range app.Files {
+		if err := updateOne(scopeHome, &app.Files[i]); err != nil {
+			return result, err
+		}
+	}
+	for i := range app.SystemFiles {
+		if err := updateOne(scopeSystem, &app.SystemFiles[i]); err != nil {
+			return result, err
+		}
 	}
 
 	stampMachineInfo(&m)

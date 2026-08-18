@@ -410,6 +410,59 @@ func outsideAllowedRoots(absPath string) error {
 		absPath)
 }
 
+// sourceAbs turns a stored manifest path back into the live path it names.
+// This is the inverse of classifySource's second return value, and the reason
+// $HOME is still resolved at read time rather than baked in: a home entry
+// names whoever is running the app now, which is the whole portability model.
+// A system entry is already absolute and names the same file everywhere.
+func sourceAbs(home string, scope pathScope, stored string) string {
+	if scope == scopeSystem {
+		return filepath.FromSlash(stored)
+	}
+	return filepath.Join(home, filepath.FromSlash(stored))
+}
+
+// systemRootOf reports which system root an absolute path sits under.
+//
+// It exists so containment can be re-proved against the root that actually
+// applies. Every guard in this program that resolves symlinks compares the
+// result against a root; for home files that root is $HOME, and for system
+// files it has to be /etc or /usr specifically. Comparing a resolved /etc
+// path against $HOME would fail every time, and comparing it against "any
+// allowed root" would let a symlink walk a file from /usr into /etc.
+func systemRootOf(absPath string) (string, bool) {
+	for _, root := range systemRoots {
+		if _, err := relativeUnder(absPath, root); err == nil {
+			return root, true
+		}
+	}
+	return "", false
+}
+
+// sourceScopeRoot returns the resolved root a stored path must stay inside
+// once symlinks are followed, paired with sourceAbs above.
+func sourceScopeRoot(home string, scope pathScope, stored string) (string, error) {
+	if scope != scopeSystem {
+		return resolveDir(home), nil
+	}
+	root, ok := systemRootOf(filepath.FromSlash(stored))
+	if !ok {
+		return "", outsideAllowedRoots(stored)
+	}
+	return resolveDir(root), nil
+}
+
+// vaultRelFor is where a stored path's copy lives inside the app's vault
+// folder. Home files keep sitting at their own relative path, exactly as
+// every vault written before v1.3.0 has them; system files go under the
+// reserved segment.
+func vaultRelFor(scope pathScope, stored string) string {
+	if scope == scopeSystem {
+		return systemVaultRel(stored)
+	}
+	return stored
+}
+
 // systemVaultRel maps an absolute system path to its slash-separated place
 // inside an app's vault folder. /etc/alsa/alsa.conf becomes
 // .system/etc/alsa/alsa.conf.
