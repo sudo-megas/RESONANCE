@@ -282,7 +282,7 @@ func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
 	n := 0
 	for _, entry := range snap.Entries {
 		destPath := filepath.Join(home, filepath.FromSlash(entry.Path))
-		if _, err := homeRelative(destPath, home); err != nil {
+		if _, err := relativeUnder(destPath, home); err != nil {
 			continue
 		}
 		switch entry.Kind {
@@ -305,7 +305,7 @@ func countRestorableEntries(snap RestoreSnapshot, canonicalDir string) int {
 
 // UndoRestore replays appName's snapshot back onto the live system,
 // per-entry-independent like RestoreApp itself. Every path is
-// re-validated through homeRelative before any write — snapshot.json is
+// re-validated through relativeUnder before any write — snapshot.json is
 // on-disk state, the same trust boundary as manifest.json, never trusted
 // blindly.
 func (a *App) UndoRestore(appName string) (UndoResult, error) {
@@ -331,7 +331,7 @@ func (a *App) UndoRestore(appName string) (UndoResult, error) {
 	allSucceeded := true
 	for _, entry := range snap.Entries {
 		destPath := filepath.Join(home, filepath.FromSlash(entry.Path))
-		if _, err := homeRelative(destPath, home); err != nil {
+		if _, err := relativeUnder(destPath, home); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: entry.Path, Reason: err.Error()})
 			allSucceeded = false
 			continue

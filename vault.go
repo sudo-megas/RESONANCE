@@ -112,13 +112,13 @@ func (a *App) PreviewPaths(absPaths []string) (PathPreview, error) {
 			continue
 		}
 		if !info.IsDir() {
-			if rel, err := homeRelative(abs, home); err == nil && !seen[rel] {
+			if rel, err := relativeUnder(abs, home); err == nil && !seen[rel] {
 				seen[rel] = true
 				preview.FileCount++
 			}
 			continue
 		}
-		rel, err := homeRelative(abs, home)
+		rel, err := relativeUnder(abs, home)
 		if err != nil {
 			continue
 		}
@@ -272,7 +272,7 @@ func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFil
 			if !info.Mode().IsRegular() {
 				return st, fmt.Errorf("%s is not a regular file", abs)
 			}
-			rel, err := homeRelative(abs, home)
+			rel, err := relativeUnder(abs, home)
 			if err != nil {
 				return st, fmt.Errorf("%s is outside your home folder", abs)
 			}
@@ -280,7 +280,7 @@ func stageAdd(home, vaultPath string, absPaths []string, haveFiles []ManifestFil
 			continue
 		}
 
-		rel, err := homeRelative(abs, home)
+		rel, err := relativeUnder(abs, home)
 		if err != nil {
 			return st, fmt.Errorf("%s is outside your home folder", abs)
 		}

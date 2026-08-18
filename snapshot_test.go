@@ -562,7 +562,7 @@ func TestUndoRestore_RevalidatesPathsAndPrunesAppliedEntriesOnPartialFailure(t *
 	}
 
 	// A hostile entry, as if snapshot.json had been tampered with — never
-	// trusted blindly, re-validated through homeRelative like anything else.
+	// trusted blindly, re-validated through relativeUnder like anything else.
 	snap := RestoreSnapshot{
 		App:       appName,
 		CreatedAt: "2020-01-01T00:00:00Z",

@@ -64,7 +64,7 @@ func TestRemoveFromApp_NeverTouchesLiveFile(t *testing.T) {
 // component; every directory above it resolves normally. With
 // <vault>/bash/.config planted as a link to the user's real ~/.config, an
 // os.Remove of the manifest-listed ".config/init.lua" deletes their live
-// config — while filepath.Rel and homeRelative both report a perfectly clean
+// config — while filepath.Rel and relativeUnder both report a perfectly clean
 // relative path, because they are purely lexical.
 func TestRemoveFromApp_RefusesSymlinkedVaultParent(t *testing.T) {
 	a, home, vault := newRestoreFixture(t)

@@ -193,7 +193,7 @@ func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
 	fr := FileRow{Path: f.Path, VaultModified: f.BackedUpAt, Size: f.Size}
 
 	sourcePath := filepath.Join(home, filepath.FromSlash(f.Path))
-	if _, err := homeRelative(sourcePath, home); err != nil {
+	if _, err := relativeUnder(sourcePath, home); err != nil {
 		fr.State = "missing"
 		return fr
 	}
@@ -222,7 +222,7 @@ func fileDriftRow(home, vaultRoot, appName string, f ManifestFile) FileRow {
 		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
 		// Lexical containment first — cheap, and it rejects the obvious
 		// "../.." shapes without touching the disk.
-		if _, err := homeRelative(vaultFile, vaultAppDir); err != nil {
+		if _, err := relativeUnder(vaultFile, vaultAppDir); err != nil {
 			fr.State = "vaultDamaged"
 			return fr
 		}
@@ -334,7 +334,7 @@ func vaultDirEscapes(vaultRoot, vaultFile string) bool {
 // folder, as $HOME-relative slash-separated paths.
 //
 // It resolves symlinks before trusting anything, and that is the whole point
-// of the function rather than a detail. homeRelative is filepath.Rel plus a
+// of the function rather than a detail. relativeUnder is filepath.Rel plus a
 // ".." prefix test — pure string work, resolving nothing — and filepath.
 // WalkDir lstats its root, which under POSIX declines to follow only the
 // FINAL component while following every intermediate one. So a stored entry
@@ -342,7 +342,7 @@ func vaultDirEscapes(vaultRoot, vaultFile string) bool {
 // all of /etc, because ~/.wine/dosdevices/z: really is a symlink to / that
 // wine ships by default (~/.steam/root and any hand-made ~/mnt -> /mnt
 // behave the same). Worse, every path discovered under it also passes a
-// second homeRelative check, because the strings genuinely do start with
+// second relativeUnder check, because the strings genuinely do start with
 // $HOME. The result would be /etc/* listed as this app's files, one click
 // away from being copied into the vault.
 //
@@ -359,7 +359,7 @@ func expandTrackedDir(home, relDir string, skipResolved []string) []string {
 	if err != nil {
 		return nil // gone, or unreadable — nothing to report
 	}
-	if _, err := homeRelative(realRoot, realHome); err != nil {
+	if _, err := relativeUnder(realRoot, realHome); err != nil {
 		return nil // escapes $HOME once resolved, whatever the string said
 	}
 	// A root sitting INSIDE the vault (or inside RESONANCE's state directory)
@@ -396,7 +396,7 @@ func expandTrackedDir(home, relDir string, skipResolved []string) []string {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, err := homeRelative(path, realHome)
+		rel, err := relativeUnder(path, realHome)
 		if err != nil {
 			return nil
 		}
@@ -482,11 +482,11 @@ func (a *App) UpdateFromSource(name string) (UpdateResult, error) {
 		vaultAppDir := filepath.Join(settings.VaultPath, app.Name)
 		vaultFile := filepath.Join(vaultAppDir, filepath.FromSlash(f.Path))
 
-		if _, err := homeRelative(sourcePath, home); err != nil {
+		if _, err := relativeUnder(sourcePath, home); err != nil {
 			result.Missing = append(result.Missing, f.Path)
 			continue
 		}
-		if _, err := homeRelative(vaultFile, vaultAppDir); err != nil {
+		if _, err := relativeUnder(vaultFile, vaultAppDir); err != nil {
 			result.Missing = append(result.Missing, f.Path)
 			continue
 		}

@@ -305,10 +305,20 @@ func writeFileAtomic(dir, path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmpPath, path)
 }
 
-// homeRelative converts an absolute path into one relative to home,
-// rejecting anything that isn't actually under home.
-func homeRelative(absPath, home string) (string, error) {
-	rel, err := filepath.Rel(home, absPath)
+// relativeUnder converts an absolute path into one relative to base,
+// rejecting anything that isn't actually under base.
+//
+// The name matters, and the old one was actively misleading. This is pure
+// string work — filepath.Rel plus a ".." test, resolving nothing — and it
+// answers "is X under Y" for two unrelated Ys. Twelve callers pass $HOME and
+// are asking a scope question: may this file be backed up at all? Seven pass
+// a vault directory and are asking a containment question: does this path
+// stay inside the vault? It was called homeRelative until v1.3.0, which made
+// the second group read like the first — and widening scope to /etc and /usr
+// is precisely the change that would have widened vault containment too if
+// the misnomer had survived into it.
+func relativeUnder(absPath, base string) (string, error) {
+	rel, err := filepath.Rel(base, absPath)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("outside your home folder")
 	}
@@ -449,7 +459,7 @@ func refuseSymlink(path string) error {
 // pointing at $HOME/.config would delete the user's live config — the single
 // thing removal must never do. unlink(2) declines to follow a symlink only at
 // the FINAL component; every directory above it is resolved normally, and
-// filepath.Join with homeRelative is purely lexical, so neither notices.
+// filepath.Join with relativeUnder is purely lexical, so neither notices.
 //
 // The leaf is deliberately NOT checked: os.Remove on a symlink unlinks the
 // link itself without dereferencing it, which is exactly what should happen

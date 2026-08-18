@@ -107,13 +107,13 @@ func (a *App) GetDiffPair(appName, relPath string) (DiffPair, error) {
 	}
 
 	liveAbs := filepath.Join(home, filepath.FromSlash(relPath))
-	if _, err := homeRelative(liveAbs, home); err != nil {
+	if _, err := relativeUnder(liveAbs, home); err != nil {
 		return DiffPair{}, err
 	}
 
 	vaultAppDir := filepath.Join(settings.VaultPath, appName)
 	vaultAbs := filepath.Join(vaultAppDir, filepath.FromSlash(relPath))
-	if _, err := homeRelative(vaultAbs, vaultAppDir); err != nil {
+	if _, err := relativeUnder(vaultAbs, vaultAppDir); err != nil {
 		return DiffPair{}, err
 	}
 	// A symlink planted at vaultAbs by whoever last had write access to the
@@ -229,7 +229,7 @@ func (a *App) RestoreApp(name string) (RestoreResult, error) {
 		}
 
 		destPath := filepath.Join(home, filepath.FromSlash(f.Path))
-		if _, err := homeRelative(destPath, home); err != nil {
+		if _, err := relativeUnder(destPath, home); err != nil {
 			result.Failed = append(result.Failed, RestoreFailure{Path: f.Path, Reason: err.Error()})
 			continue
 		}

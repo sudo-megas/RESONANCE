@@ -239,7 +239,7 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 				strings.Join(covering, " and "),
 				plural(len(covering), "it", "those"))
 		}
-		if _, err := homeRelative(filepath.Join(vaultAppDir, filepath.FromSlash(p)), vaultAppDir); err != nil {
+		if _, err := relativeUnder(filepath.Join(vaultAppDir, filepath.FromSlash(p)), vaultAppDir); err != nil {
 			return result, fmt.Errorf("%s isn't inside this app's vault folder", p)
 		}
 		files = append(files, p)
@@ -255,7 +255,7 @@ func (a *App) RemoveFromApp(name string, relPaths, relDirs []string) (RemoveResu
 		if !haveDir[d] {
 			return result, fmt.Errorf("%s isn't a tracked folder of %s", d, app.Name)
 		}
-		if _, err := homeRelative(filepath.Join(vaultAppDir, filepath.FromSlash(d)), vaultAppDir); err != nil {
+		if _, err := relativeUnder(filepath.Join(vaultAppDir, filepath.FromSlash(d)), vaultAppDir); err != nil {
 			return result, fmt.Errorf("%s isn't inside this app's vault folder", d)
 		}
 		dirs = append(dirs, d)
@@ -478,7 +478,7 @@ func (a *App) RemoveApp(name string) (RemoveResult, error) {
 	// Defence in depth on top of loadManifest's name sanitization: prove the
 	// directory about to be deleted recursively is genuinely inside the
 	// vault before deleting it.
-	if _, err := homeRelative(appDir, settings.VaultPath); err != nil {
+	if _, err := relativeUnder(appDir, settings.VaultPath); err != nil {
 		return result, fmt.Errorf("%s isn't inside the vault", app.Name)
 	}
 	if err := os.RemoveAll(appDir); err != nil {
@@ -544,7 +544,7 @@ func (a *App) RenameApp(oldName, newName string) error {
 
 	oldDir := filepath.Join(settings.VaultPath, oldName)
 	newDir := filepath.Join(settings.VaultPath, newName)
-	if _, err := homeRelative(newDir, settings.VaultPath); err != nil {
+	if _, err := relativeUnder(newDir, settings.VaultPath); err != nil {
 		return fmt.Errorf("%s isn't a usable folder name", newName)
 	}
 	if _, err := os.Lstat(newDir); err == nil {

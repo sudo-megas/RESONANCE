@@ -14,7 +14,7 @@ import (
 // Name is itself a path-traversal payload, not just one of its file paths.
 // Every vault-side path this codebase builds is filepath.Join(vaultPath,
 // app.Name, ...); without sanitizing app.Name at load time, that join
-// escapes the vault regardless of any per-file homeRelative check further
+// escapes the vault regardless of any per-file relativeUnder check further
 // down each call site.
 func TestLoadManifest_RejectsHostileAppName(t *testing.T) {
 	vault := t.TempDir()
@@ -186,7 +186,7 @@ func TestUpdateFromSource_RefusesToFollowSymlinkAtVaultDestination(t *testing.T)
 
 // TestFileDriftRow_RejectsPathTraversal plants a real file outside $HOME
 // whose checksum/size exactly matches what a hostile manifest entry
-// claims. Without the homeRelative guard, fileDriftRow would happily stat
+// claims. Without the relativeUnder guard, fileDriftRow would happily stat
 // and hash that outside file and report State "ok" -- a false "everything
 // matches" for a path that was never supposed to be read at all. This is
 // what makes the test meaningful: "missing" must come from the guard
@@ -223,13 +223,13 @@ func TestFileDriftRow_RejectsPathTraversal(t *testing.T) {
 // TestExpandTrackedDir_RefusesIntermediateSymlink is the regression that a
 // "../../etc" test cannot give you, and the distinction is the whole point.
 //
-// Every guard on a tracked-folder path is lexical: homeRelative is
+// Every guard on a tracked-folder path is lexical: relativeUnder is
 // filepath.Rel plus a ".." prefix test, resolving nothing. filepath.WalkDir
 // lstats its root, and lstat declines to follow only the FINAL component —
 // every intermediate one is followed. So "link/sub", where link is a symlink
 // pointing outside $HOME, passes filepath.Clean, passes IsLocal, passes
-// homeRelative, and then walks the target anyway. Every file discovered
-// under it passes a second homeRelative check too, because those strings
+// relativeUnder, and then walks the target anyway. Every file discovered
+// under it passes a second relativeUnder check too, because those strings
 // really do begin with $HOME.
 //
 // This is not a contrived shape: ~/.wine/dosdevices/z: -> / ships with wine
@@ -530,7 +530,7 @@ func TestSanitizeTrackedDirs_DropsEscapes(t *testing.T) {
 // manifest.json -- e.g. one reachable via AdoptVaultPath -- whose file path
 // escapes $HOME. Every other path-consuming function in this codebase
 // (AddApp, RestoreApp, UndoRestore, GetDiffPair) re-validates manifest
-// paths through homeRelative before touching disk; UpdateFromSource must
+// paths through relativeUnder before touching disk; UpdateFromSource must
 // too, or a hostile entry gets silently read from outside $HOME and copied
 // into the vault.
 func TestUpdateFromSource_RejectsPathTraversal(t *testing.T) {
