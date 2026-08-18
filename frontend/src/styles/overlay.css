@@ -52,9 +52,15 @@
   justify-content: center;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: transparent;
+  /* Opaque, not transparent. .overlay-panel scrolls, and WebKitGTK draws
+     overlay scrollbars — they float above content instead of taking layout
+     space, so anything underneath this button shows through it and the
+     scrollbar itself can pass across it. An opaque chip keeps the glyph
+     readable whatever is behind it, in every theme. */
+  background: var(--overlay-panel);
   color: var(--text-dim);
   cursor: pointer;
+  z-index: 1;
 }
 .overlay-close:hover {
   color: var(--text);
@@ -353,7 +359,10 @@
 .addapp-filelist {
   list-style: none;
   margin: 0 0 12px;
-  padding: 0;
+  /* Right padding, not zero: WebKitGTK's overlay scrollbar is painted over
+     the content box rather than beside it, so without this the last few
+     characters of every row sit underneath it. */
+  padding: 0 12px 0 0;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -366,6 +375,10 @@
   border-bottom: 1px solid var(--border);
 }
 .addapp-file-path {
+  /* A flex item defaults to min-width:auto, which refuses to shrink below its
+     own content — so without this the ellipsis never engages and a long path
+     pushes the rest of the row out past the edge instead of truncating. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -908,7 +921,14 @@
   opacity: 0.65;
 }
 .editapp-covered-note {
-  flex-shrink: 0;
+  /* Shrinkable, unlike the buttons beside it: when the row runs out of room
+     this is the part that can afford to lose characters, because the folder
+     it names is on screen directly above. */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-dim);
   font-style: italic;
@@ -939,7 +959,7 @@
 .editapp-remove-list {
   list-style: none;
   margin: 0 0 10px;
-  padding: 0;
+  padding: 0 12px 0 0;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -1051,7 +1071,7 @@
 .snapshot-list {
   list-style: none;
   margin: 0 0 18px;
-  padding: 0;
+  padding: 0 12px 0 0;
 }
 .snapshot-row {
   padding: 10px 12px;
@@ -1145,7 +1165,7 @@
 .orphan-list {
   list-style: none;
   margin: 0 0 12px;
-  padding: 8px 10px;
+  padding: 8px 20px 8px 10px;
   max-height: 180px;
   overflow-y: auto;
   border-radius: 6px;

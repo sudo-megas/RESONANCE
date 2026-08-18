@@ -84,7 +84,7 @@ export async function openEditApp(appName: string): Promise<void> {
   closeBtn.type = "button";
   closeBtn.className = "overlay-close";
   closeBtn.setAttribute("aria-label", "Close");
-  closeBtn.textContent = "";
+  closeBtn.textContent = "\uf00d";
   closeBtn.addEventListener("click", () => closeOverlay());
   content.appendChild(closeBtn);
 
@@ -309,7 +309,7 @@ export async function openEditApp(appName: string): Promise<void> {
       removeBtn.type = "button";
       removeBtn.className = "addapp-file-remove";
       removeBtn.setAttribute("aria-label", `Remove the folder ${d.path} from the vault`);
-      removeBtn.textContent = "";
+      removeBtn.textContent = "\uf00d";
       removeBtn.addEventListener("click", () => stageDirRemoval(d.path));
       li.appendChild(removeBtn);
 
@@ -342,7 +342,7 @@ export async function openEditApp(appName: string): Promise<void> {
         removeBtn.type = "button";
         removeBtn.className = "addapp-file-remove";
         removeBtn.setAttribute("aria-label", `Remove ${path} from the vault`);
-        removeBtn.textContent = "";
+        removeBtn.textContent = "\uf00d";
         removeBtn.addEventListener("click", () => stageFileRemoval(path));
         li.appendChild(removeBtn);
       }
@@ -380,7 +380,7 @@ export async function openEditApp(appName: string): Promise<void> {
       removeBtn.type = "button";
       removeBtn.className = "addapp-file-remove";
       removeBtn.setAttribute("aria-label", `Don't add ${path}`);
-      removeBtn.textContent = "";
+      removeBtn.textContent = "\uf00d";
       removeBtn.addEventListener("click", () => {
         const i = pendingAdds.indexOf(path);
         if (i !== -1) pendingAdds.splice(i, 1);
@@ -422,7 +422,7 @@ export async function openEditApp(appName: string): Promise<void> {
       unstage.type = "button";
       unstage.className = "addapp-file-remove";
       unstage.setAttribute("aria-label", `Keep ${path}`);
-      unstage.textContent = "";
+      unstage.textContent = "\uf00d";
       unstage.addEventListener("click", () => {
         removeFiles.delete(path);
         removeDirs.delete(path);

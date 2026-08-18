@@ -67,7 +67,7 @@ function openRestoreReport(appName: string, result: main.RestoreResult): void {
   closeBtn.type = "button";
   closeBtn.className = "overlay-close";
   closeBtn.setAttribute("aria-label", "Close");
-  closeBtn.textContent = "";
+  closeBtn.textContent = "\uf00d";
   closeBtn.addEventListener("click", () => closeOverlay());
   content.appendChild(closeBtn);
 
